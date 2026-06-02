@@ -1,0 +1,6 @@
+{
+  "name": "ETW CONTROLE DE AUTEX",
+  "description": "Sistema para importação de AUTEX e abatimento automático de saldo através do upload de XML de Notas Fiscais (NF-e).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
