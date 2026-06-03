@@ -10,7 +10,14 @@ const ASSETS_TO_CACHE = [
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
+      // Prevents the entire service worker installation from failing if one asset fails to load
+      return Promise.allSettled(
+        ASSETS_TO_CACHE.map((url) => {
+          return cache.add(url).catch((err) => {
+            console.warn(`Failed to cache ${url}:`, err);
+          });
+        })
+      );
     }).then(() => self.skipWaiting())
   );
 });
