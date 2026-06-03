@@ -248,12 +248,6 @@ export default function LoginOverlay({ onLogin, onAddSecurityLog }: LoginOverlay
         </div>
 
       </div>
-
-      {/* Default reminder helper pill for easier visual testing */}
-      <div className="mt-6 text-center text-xs text-slate-500 bg-slate-900/40 border border-emerald-905/10 px-4 py-2 rounded-full leading-normal z-10 max-w-sm">
-        <span className="font-bold text-emerald-400">Default Master Admin:</span> <br />
-        Cobrador de Acesso → Usuário: <strong className="text-white">COSTA</strong> | Senha: <strong className="text-white">1318</strong>
-      </div>
     </div>
   );
 }
