@@ -148,7 +148,9 @@ export default function App() {
   const [reportSubTab, setReportSubTab] = useState<"estoque" | "carregamentos" | "serraria">("estoque");
   
   // PWA (Progressive Web App) Support
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(() => {
+    return (window as any).deferredInstallPrompt || null;
+  });
   const [isPwaInstalled, setIsPwaInstalled] = useState(false);
   const [isPwaModalOpen, setIsPwaModalOpen] = useState(false);
 
@@ -158,6 +160,12 @@ export default function App() {
       setDeferredPrompt(e);
     };
 
+    const handleCustomPrompt = (e: any) => {
+      if (e.detail) {
+        setDeferredPrompt(e.detail);
+      }
+    };
+
     const handleAppInstalled = () => {
       setIsPwaInstalled(true);
       setDeferredPrompt(null);
@@ -165,6 +173,7 @@ export default function App() {
     };
 
     window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("pwaPromptAvailable", handleCustomPrompt);
     window.addEventListener("appinstalled", handleAppInstalled);
 
     if (window.matchMedia("(display-mode: standalone)").matches || (navigator as any).standalone) {
@@ -173,6 +182,7 @@ export default function App() {
 
     return () => {
       window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("pwaPromptAvailable", handleCustomPrompt);
       window.removeEventListener("appinstalled", handleAppInstalled);
     };
   }, []);

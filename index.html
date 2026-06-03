@@ -13,6 +13,16 @@
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
+      // Global variable to capture beforeinstallprompt before React loads (prevents PWA install race condition)
+      window.deferredInstallPrompt = null;
+      window.addEventListener("beforeinstallprompt", (e) => {
+        e.preventDefault();
+        window.deferredInstallPrompt = e;
+        console.log("PWA beforeinstallprompt captured early in index.html!");
+        // Dispatch custom event to notify React if it is already loaded
+        window.dispatchEvent(new CustomEvent("pwaPromptAvailable", { detail: e }));
+      });
+
       if ("serviceWorker" in navigator) {
         function registerSW() {
           navigator.serviceWorker.register("/sw.js")

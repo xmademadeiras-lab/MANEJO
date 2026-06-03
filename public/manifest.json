@@ -2,21 +2,37 @@
   "short_name": "ETW AUTEX",
   "name": "ETW CONTROLE DE AUTEX",
   "description": "Sistema de Gestão Ambiental, Controle de Saldo de AUTEX e Rastreabilidade Florestal",
+  "id": "/",
+  "scope": "/",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#022c22",
+  "theme_color": "#022c22",
   "icons": [
     {
       "src": "/logo.png",
       "type": "image/png",
-      "sizes": "192x192"
+      "sizes": "192x192",
+      "purpose": "any"
     },
     {
       "src": "/logo.png",
       "type": "image/png",
-      "sizes": "512x512"
+      "sizes": "192x192",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/logo.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "/logo.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
     }
-  ],
-  "start_url": "/",
-  "background_color": "#022c22",
-  "theme_color": "#022c22",
-  "display": "standalone",
-  "orientation": "portrait"
+  ]
 }
