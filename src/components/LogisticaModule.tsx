@@ -514,22 +514,22 @@ export default function LogisticaModule({ deductions }: LogisticaModuleProps) {
               />
             </div>
 
-            {/* Capacidade M³ Estimada Slider/Input */}
+            {/* Capacidade M³ Estimada Input */}
             <div>
               <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
                 Capacidade Estimada de Carga (m³)
               </label>
-              <select
+              <input
+                type="number"
+                step="0.01"
+                min="0.1"
+                required
+                placeholder="Ex: 45 ou 32.5"
                 value={newCapacidade}
                 onChange={(e) => setNewCapacidade(e.target.value)}
-                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 transition"
-              >
-                <option value="25">25 m³ — Caminhão Truck Simples</option>
-                <option value="35">35 m³ — Bitruck</option>
-                <option value="45">45 m³ — Carreta de Madeira Curta</option>
-                <option value="50">50 m³ — Scania / Carreta Longa</option>
-                <option value="60">60 m³ — Romeu e Julieta / Tritrem</option>
-              </select>
+                className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 transition"
+              />
+              <p className="text-[9px] text-slate-400 mt-1">Digite o limite em m³ para monitoramento de sobrecarga no pátio.</p>
             </div>
 
             <button

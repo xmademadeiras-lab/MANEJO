@@ -15,6 +15,7 @@ import LogisticaModule from "./components/LogisticaModule";
 import RelatoriosModule from "./components/RelatoriosModule";
 import BackupModule from "./components/BackupModule";
 import UserControlModule from "./components/UserControlModule";
+import LoginOverlay from "./components/LoginOverlay";
 import { SecurityLog } from "./types";
 import { 
   FileText, 
@@ -63,7 +64,11 @@ export default function App() {
   const [dashboardSearch, setDashboardSearch] = useState("");
   const [dashboardOwnerSearch, setDashboardOwnerSearch] = useState("");
 
-  const [currentUser, setCurrentUser] = useState(() => localStorage.getItem("etw_current_user") || "Gestor_Matriz_01");
+  const [currentUser, setCurrentUser] = useState(() => localStorage.getItem("etw_current_user") || "COSTA");
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return localStorage.getItem("etw_is_authenticated") === "true";
+  });
+
   const [securityLogs, setSecurityLogs] = useState<SecurityLog[]>(() => {
     const saved = localStorage.getItem("etw_security_logs");
     if (saved) {
@@ -76,11 +81,11 @@ export default function App() {
     return [];
   });
 
-  const handleAddSecurityLog = (acao: string, detalhes: string, status: "sucesso" | "erro" | "alerta") => {
+  const handleAddSecurityLog = (acao: string, detalhes: string, status: "sucesso" | "erro" | "alerta", userOverride?: string) => {
     const newLog: SecurityLog = {
       id: `log-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       timestamp: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-      usuario: currentUser,
+      usuario: userOverride || currentUser,
       acao,
       detalhes,
       status
@@ -88,6 +93,19 @@ export default function App() {
     const updated = [newLog, ...securityLogs].slice(0, 100);
     setSecurityLogs(updated);
     localStorage.setItem("etw_security_logs", JSON.stringify(updated));
+  };
+
+  const handleLoginSuccess = (username: string) => {
+    setCurrentUser(username);
+    localStorage.setItem("etw_current_user", username);
+    localStorage.setItem("etw_is_authenticated", "true");
+    setIsAuthenticated(true);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("etw_is_authenticated");
+    setIsAuthenticated(false);
+    handleAddSecurityLog("LOGOUT", "Sessão encerrada voluntariamente pelo operador", "sucesso");
   };
 
   const handleClearSecurityLogs = () => {
@@ -956,6 +974,12 @@ export default function App() {
   const [saldoIntRaw, saldoDec] = totalSaldoString.split(".");
   const saldoInt = Number(saldoIntRaw).toLocaleString("pt-BR");
 
+  if (!isAuthenticated) {
+    return (
+      <LoginOverlay onLogin={handleLoginSuccess} onAddSecurityLog={handleAddSecurityLog} />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col md:flex-row relative" id="application-root">
       
@@ -1214,9 +1238,18 @@ export default function App() {
 
         {/* OPERATOR INFO & UTILITIES */}
         <div className="p-5 border-t border-emerald-900/40 bg-emerald-950/50 text-[10px] space-y-3 font-mono tracking-wide">
-          <div className="flex items-center gap-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-450 animate-pulse shrink-0"></span>
-            <span className="text-emerald-300/80">Operador: {currentUser}</span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-450 animate-pulse shrink-0"></span>
+              <span className="text-emerald-300/80">Operador: {currentUser}</span>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="px-2 py-0.5 bg-rose-950/60 hover:bg-rose-900 text-rose-300 hover:text-white border border-rose-900/60 rounded-md text-[8px] font-bold uppercase transition"
+              title="Encerrar Sessão Segura"
+            >
+              SAIR
+            </button>
           </div>
           <div className="flex items-center justify-between text-emerald-400/70 border-t border-emerald-900/40 pt-2.5">
             <span>Redefinir Demonstração</span>

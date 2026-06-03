@@ -67,6 +67,7 @@ export interface SawmillProcessLog {
 export interface UserAccount {
   id: string;
   username: string;
+  senha?: string;
   nome: string;
   cargo: string;
   role: "admin" | "operator" | "auditor";

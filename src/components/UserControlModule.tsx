@@ -29,8 +29,20 @@ interface UserControlModuleProps {
 
 const DEFAULT_USERS: UserAccount[] = [
   {
+    id: "user-master",
+    username: "COSTA",
+    senha: "1318",
+    nome: "Diretor Costa (Master)",
+    cargo: "Administrador Geral Integrado",
+    role: "admin",
+    ativo: true,
+    dataCriacao: "2026-06-03",
+    permissoes: ["Visualização Completa", "Lançar Abates", "Configurar Logística", "Industrializar Serraria", "Efetuar Backup", "Controle de Usuários"]
+  },
+  {
     id: "user-1",
     username: "Gestor_Matriz_01",
+    senha: "1234",
     nome: "Marcos Estrela",
     cargo: "Diretor Geral de Operações",
     role: "admin",
@@ -41,6 +53,7 @@ const DEFAULT_USERS: UserAccount[] = [
   {
     id: "user-2",
     username: "Operador_Patio_01",
+    senha: "1234",
     nome: "Reginaldo de Souza",
     cargo: "Supervisor de Logística",
     role: "operator",
@@ -51,6 +64,7 @@ const DEFAULT_USERS: UserAccount[] = [
   {
     id: "user-3",
     username: "Ind_Serraria_Sec",
+    senha: "1234",
     nome: "Ademir Nogueira",
     cargo: "Operador Industrial (Serraria)",
     role: "operator",
@@ -61,6 +75,7 @@ const DEFAULT_USERS: UserAccount[] = [
   {
     id: "user-4",
     username: "Auditor_Fiscal_Ibama",
+    senha: "1234",
     nome: "Dra. Eliane Prado",
     cargo: "Auditora Ambiental Fiscal",
     role: "auditor",
@@ -84,6 +99,7 @@ export default function UserControlModule({
 
   // Form states for new user
   const [formUsername, setFormUsername] = useState("");
+  const [formSenha, setFormSenha] = useState("");
   const [formNome, setFormNome] = useState("");
   const [formCargo, setFormCargo] = useState("");
   const [formRole, setFormRole] = useState<"admin" | "operator" | "auditor">("operator");
@@ -190,6 +206,7 @@ export default function UserControlModule({
     const newUser: UserAccount = {
       id: `user-${Date.now()}`,
       username: cleanUsername,
+      senha: formSenha.trim() || "1234",
       nome: formNome.trim(),
       cargo: formCargo.trim() || "Operador Operacional",
       role: formRole,
@@ -206,6 +223,7 @@ export default function UserControlModule({
 
     // Clean form
     setFormUsername("");
+    setFormSenha("");
     setFormNome("");
     setFormCargo("");
     setIsAddingUser(false);
@@ -355,6 +373,18 @@ export default function UserControlModule({
                   <option value="admin">Administrador (Total Acesso)</option>
                   <option value="auditor">Auditor Externo (Fiscal - Somente Leitura)</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] uppercase tracking-wide font-black text-slate-500 mb-1.5">Senha de Acesso Operacional</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: 1234 ou senha forte"
+                  value={formSenha}
+                  onChange={(e) => setFormSenha(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 text-slate-800 text-sm focus:outline-none focus:border-slate-800 rounded-sm focus:ring-1 focus:ring-slate-800 font-mono"
+                />
               </div>
             </div>
 
