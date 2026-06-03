@@ -64,3 +64,23 @@ export interface SawmillProcessLog {
   dataProcessamento: string;
 }
 
+export interface UserAccount {
+  id: string;
+  username: string;
+  nome: string;
+  cargo: string;
+  role: "admin" | "operator" | "auditor";
+  ativo: boolean;
+  dataCriacao: string;
+  permissoes: string[]; // e.g. ["Visualização Completa", "Lançar Abates", "Configurar Logística", "Industrializar Serraria", "Efetuar Backup", "Controle de Usuários"]
+}
+
+export interface SecurityLog {
+  id: string;
+  timestamp: string;
+  usuario: string;
+  acao: string;
+  detalhes: string;
+  status: "sucesso" | "erro" | "alerta";
+}
+

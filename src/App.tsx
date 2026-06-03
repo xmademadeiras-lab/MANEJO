@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from "react";
-import logoUrl from "./assets/images/etw_autex_logo_1780415184349.png";
+import logoUrl from "./assets/images/etw_green_logo_1780489144222.png";
 import { Autex, NfeDeduction, NfeImportResult, NfeItem, SawmillProcessLog } from "./types";
 import { DEFAULT_AUTEX_LIST } from "./data";
 import { parseNfeXml, generateSampleNfeXml } from "./utils/xmlParser";
@@ -13,6 +13,9 @@ import NfeMappingModal from "./components/NfeMappingModal";
 import SerrariaModule from "./components/SerrariaModule";
 import LogisticaModule from "./components/LogisticaModule";
 import RelatoriosModule from "./components/RelatoriosModule";
+import BackupModule from "./components/BackupModule";
+import UserControlModule from "./components/UserControlModule";
+import { SecurityLog } from "./types";
 import { 
   FileText, 
   Upload, 
@@ -42,7 +45,9 @@ import {
   Factory,
   Clock,
   TrendingUp,
-  BarChart2
+  BarChart2,
+  Database,
+  Shield
 } from "lucide-react";
 
 export default function App() {
@@ -52,11 +57,48 @@ export default function App() {
   const [deductions, setDeductions] = useState<NfeDeduction[]>([]);
   
   // Navigation Tabs state
-  const [activeTab, setActiveTab] = useState<"painel" | "lancamento" | "relatorios" | "serraria" | "logistica">("painel");
+  const [activeTab, setActiveTab] = useState<"painel" | "lancamento" | "relatorios" | "serraria" | "logistica" | "backup" | "usuarios">("painel");
   const [sawmillLogs, setSawmillLogs] = useState<SawmillProcessLog[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [dashboardSearch, setDashboardSearch] = useState("");
   const [dashboardOwnerSearch, setDashboardOwnerSearch] = useState("");
+
+  const [currentUser, setCurrentUser] = useState(() => localStorage.getItem("etw_current_user") || "Gestor_Matriz_01");
+  const [securityLogs, setSecurityLogs] = useState<SecurityLog[]>(() => {
+    const saved = localStorage.getItem("etw_security_logs");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  });
+
+  const handleAddSecurityLog = (acao: string, detalhes: string, status: "sucesso" | "erro" | "alerta") => {
+    const newLog: SecurityLog = {
+      id: `log-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+      usuario: currentUser,
+      acao,
+      detalhes,
+      status
+    };
+    const updated = [newLog, ...securityLogs].slice(0, 100);
+    setSecurityLogs(updated);
+    localStorage.setItem("etw_security_logs", JSON.stringify(updated));
+  };
+
+  const handleClearSecurityLogs = () => {
+    setSecurityLogs([]);
+    localStorage.removeItem("etw_security_logs");
+  };
+
+  const handleSwitchUser = (username: string) => {
+    setCurrentUser(username);
+    localStorage.setItem("etw_current_user", username);
+  };
 
   // --- Manual Launch State ---
   const [manualNfNumber, setManualNfNumber] = useState("");
@@ -221,6 +263,7 @@ export default function App() {
     const updated = [newAutex, ...autexList];
     saveAutexList(updated);
     setActiveAutexId(newAutex.id);
+    handleAddSecurityLog("CADASTRO AUTEX", `Cadastrou contrato AUTEX nº ${newAutex.numero}`, "sucesso");
   };
 
   // Parse CSV helper
@@ -945,9 +988,9 @@ export default function App() {
       {/* Mobile Sticky Header */}
       <div className="md:hidden flex items-center justify-between bg-emerald-950 text-white px-5 py-4 border-b border-emerald-900 shrink-0 z-30 no-print" id="mobile-nav-bar">
         <div className="flex items-center gap-2.5">
-          <img src={logoUrl} alt="ETW Logo" className="w-7 h-7 object-contain bg-white rounded-sm p-0.5" referrerPolicy="no-referrer" />
+          <img src={logoUrl} alt="ETW Logo" className="w-8 h-8 object-contain" referrerPolicy="no-referrer" />
           <span className="font-mono text-sm font-semibold tracking-tight text-white">ETW CONTROLE DE AUTEX</span>
-        </div>
+         </div>
         <button
           onClick={() => setIsSidebarOpen(!isSidebarOpen)}
           className="p-2 bg-emerald-905 border border-emerald-800 text-emerald-300 hover:text-white hover:bg-emerald-800 transition cursor-pointer rounded-lg"
@@ -967,7 +1010,7 @@ export default function App() {
       >
         {/* Title / Brand Header */}
         <div className="p-6 border-b border-emerald-900/40 flex items-center gap-3 bg-emerald-950/80">
-          <img src={logoUrl} alt="ETW Logo" className="w-10 h-10 object-contain bg-white rounded-lg p-1.5 shadow-sm" referrerPolicy="no-referrer" />
+          <img src={logoUrl} alt="ETW Logo" className="w-12 h-12 object-contain" referrerPolicy="no-referrer" />
           <div>
             <div className="flex items-center gap-1">
               <span className="text-lg font-extrabold tracking-tight text-white leading-none">ETW CONTROLE</span>
@@ -1135,13 +1178,45 @@ export default function App() {
             <Factory className="w-4 h-4 shrink-0" />
             <span>🪚 Módulo Serraria</span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("backup");
+              setIsSidebarOpen(false);
+            }}
+            className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase tracking-wider transition-all duration-150 rounded-xl cursor-pointer ${
+              activeTab === "backup"
+                ? "bg-emerald-800 text-white shadow-sm"
+                : "text-emerald-300 hover:text-white hover:bg-emerald-900/40"
+            }`}
+          >
+            <Database className="w-4 h-4 shrink-0" />
+            <span>💾 Módulo Backup</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("usuarios");
+              setIsSidebarOpen(false);
+            }}
+            className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase tracking-wider transition-all duration-150 rounded-xl cursor-pointer ${
+              activeTab === "usuarios"
+                ? "bg-emerald-800 text-white shadow-sm"
+                : "text-emerald-300 hover:text-white hover:bg-emerald-900/40"
+            }`}
+          >
+            <Shield className="w-4 h-4 shrink-0" />
+            <span>👥 Controle de Usuários</span>
+          </button>
         </nav>
 
         {/* OPERATOR INFO & UTILITIES */}
         <div className="p-5 border-t border-emerald-900/40 bg-emerald-950/50 text-[10px] space-y-3 font-mono tracking-wide">
           <div className="flex items-center gap-2">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-450 animate-pulse shrink-0"></span>
-            <span className="text-emerald-300/80">Operador: Gestor_Matriz_01</span>
+            <span className="text-emerald-300/80">Operador: {currentUser}</span>
           </div>
           <div className="flex items-center justify-between text-emerald-400/70 border-t border-emerald-900/40 pt-2.5">
             <span>Redefinir Demonstração</span>
@@ -1914,6 +1989,31 @@ export default function App() {
           {activeTab === "logistica" && (
             <LogisticaModule 
               deductions={deductions}
+            />
+          )}
+
+          {/* DYNAMIC COMPONENT: TAB 6 (MÓDULO BACKUP) */}
+          {activeTab === "backup" && (
+            <BackupModule
+              autexList={autexList}
+              onRestoreAutexList={saveAutexList}
+              deductions={deductions}
+              onRestoreDeductions={saveDeductions}
+              sawmillLogs={sawmillLogs}
+              onRestoreSawmillLogs={saveSawmillLogs}
+              currentUser={currentUser}
+              onAddSecurityLog={handleAddSecurityLog}
+            />
+          )}
+
+          {/* DYNAMIC COMPONENT: TAB 7 (CONTROLE DE USUÁRIOS) */}
+          {activeTab === "usuarios" && (
+            <UserControlModule
+              currentUser={currentUser}
+              onSwitchUser={handleSwitchUser}
+              securityLogs={securityLogs}
+              onAddSecurityLog={handleAddSecurityLog}
+              onClearSecurityLogs={handleClearSecurityLogs}
             />
           )}
 
