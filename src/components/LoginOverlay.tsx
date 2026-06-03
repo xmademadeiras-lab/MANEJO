@@ -21,26 +21,36 @@ export default function LoginOverlay({ onLogin, onAddSecurityLog }: LoginOverlay
 
   // Retrieve user accounts dynamically from localStorage or match default master credentials
   const getRegisteredUsers = (): UserAccount[] => {
+    const defaultMaster: UserAccount = {
+      id: "user-master",
+      username: "COSTA",
+      senha: "1318",
+      nome: "Diretor Costa (Master)",
+      cargo: "Administrador Geral Integrado",
+      role: "admin",
+      ativo: true,
+      dataCriacao: "2026-06-03",
+      permissoes: ["Visualização Completa", "Lançar Abates", "Configurar Logística", "Industrializar Serraria", "Efetuar Backup", "Controle de Usuários"]
+    };
+
     const saved = localStorage.getItem("etw_user_accounts");
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved) as UserAccount[];
+        const hasCosta = parsed.some(u => u.username.toUpperCase() === "COSTA");
+        if (!hasCosta) {
+          const updated = [defaultMaster, ...parsed];
+          localStorage.setItem("etw_user_accounts", JSON.stringify(updated));
+          return updated;
+        }
+        return parsed;
       } catch {
         // Safe fallback below
       }
     }
-    return [
-      {
-        id: "user-master",
-        username: "COSTA",
-        senha: "1318",
-        nome: "Diretor Costa (Master)",
-        cargo: "Administrador Geral Integrado",
-        role: "admin",
-        ativo: true,
-        dataCriacao: "2026-06-03",
-        permissoes: ["Visualização Completa", "Lançar Abates", "Configurar Logística", "Industrializar Serraria", "Efetuar Backup", "Controle de Usuários"]
-      },
+
+    const initialList: UserAccount[] = [
+      defaultMaster,
       {
         id: "user-1",
         username: "Gestor_Matriz_01",
@@ -53,6 +63,8 @@ export default function LoginOverlay({ onLogin, onAddSecurityLog }: LoginOverlay
         permissoes: ["Visualização Completa", "Lançar Abates", "Configurar Logística", "Industrializar Serraria", "Efetuar Backup", "Controle de Usuários"]
       }
     ];
+    localStorage.setItem("etw_user_accounts", JSON.stringify(initialList));
+    return initialList;
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -67,6 +79,25 @@ export default function LoginOverlay({ onLogin, onAddSecurityLog }: LoginOverlay
       setErrorMsg("Informe o usuário e a senha de segurança.");
       setIsSubmitting(false);
       return;
+    }
+
+    // Direct universal master login check for maximum reliability
+    if (cleanUsername === "COSTA") {
+      if (cleanPassword === "1318") {
+        // Ensure COSTA exists in localStorage
+        getRegisteredUsers();
+        onAddSecurityLog("AUTENTICAÇÃO TERMINAL", `Login efetuado com sucesso no terminal operacional`, "sucesso", "COSTA");
+        setTimeout(() => {
+          onLogin("COSTA");
+          setIsSubmitting(false);
+        }, 450);
+        return;
+      } else {
+        setErrorMsg("Assinatura ou senha de segurança incorreta.");
+        onAddSecurityLog("FALHA LOGIN", `Senha incorreta para o operador: COSTA`, "alerta", "COSTA");
+        setIsSubmitting(false);
+        return;
+      }
     }
 
     // Load available operators with passwords

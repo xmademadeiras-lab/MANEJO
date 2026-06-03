@@ -32,6 +32,8 @@ import {
   Layers,
   ArrowRightLeft,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Info,
   Landmark,
   Truck,
@@ -61,6 +63,15 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<"painel" | "lancamento" | "relatorios" | "serraria" | "logistica" | "backup" | "usuarios">("painel");
   const [sawmillLogs, setSawmillLogs] = useState<SawmillProcessLog[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => localStorage.getItem("etw_sidebar_collapsed") === "true");
+
+  const toggleSidebarCollapse = () => {
+    setIsSidebarCollapsed(prev => {
+      const next = !prev;
+      localStorage.setItem("etw_sidebar_collapsed", String(next));
+      return next;
+    });
+  };
   const [dashboardSearch, setDashboardSearch] = useState("");
   const [dashboardOwnerSearch, setDashboardOwnerSearch] = useState("");
 
@@ -1027,116 +1038,151 @@ export default function App() {
 
       {/* PERSISTENT LEFT SIDEBAR */}
       <aside 
-        className={`fixed inset-y-0 left-0 md:static flex flex-col w-72 bg-emerald-950 text-emerald-150 border-r border-emerald-900/40 shadow-2xl md:shadow-none z-50 transform md:transform-none transition-transform duration-300 ease-in-out shrink-0 no-print ${
+        className={`fixed inset-y-0 left-0 md:sticky md:top-0 md:h-screen flex flex-col bg-emerald-950 text-emerald-150 border-r border-emerald-900/40 shadow-2xl md:shadow-none z-50 transform md:transform-none transition-all duration-300 ease-in-out shrink-0 no-print overflow-y-auto ${
+          isSidebarCollapsed ? "md:w-20 w-72" : "w-72"
+        } ${
           isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
         }`}
         id="app-sidebar"
       >
         {/* Title / Brand Header */}
-        <div className="p-6 border-b border-emerald-900/40 flex items-center gap-3 bg-emerald-950/80">
-          <img src={logoUrl} alt="ETW Logo" className="w-12 h-12 object-contain" referrerPolicy="no-referrer" />
-          <div>
-            <div className="flex items-center gap-1">
-              <span className="text-lg font-extrabold tracking-tight text-white leading-none">ETW CONTROLE</span>
-            </div>
-            <span className="text-[9px] text-emerald-400/90 font-mono tracking-widest uppercase font-bold block mt-1">Manejo vs AUTEX</span>
+        <div className={`p-4 border-b border-emerald-900/40 flex ${isSidebarCollapsed ? "md:flex-col items-center gap-3 py-6" : "items-center justify-between gap-3"} bg-emerald-950/80 transition-all`}>
+          <div className={`flex items-center gap-3 ${isSidebarCollapsed ? "md:flex-col" : ""}`}>
+            <img src={logoUrl} alt="ETW Logo" className={`object-contain transition-all duration-300 ${isSidebarCollapsed ? "w-10 h-10" : "w-12 h-12"}`} referrerPolicy="no-referrer" />
+            {!isSidebarCollapsed && (
+              <div className="transition-all duration-300">
+                <div className="flex items-center gap-1">
+                  <span className="text-lg font-extrabold tracking-tight text-white leading-none">ETW CONTROLE</span>
+                </div>
+                <span className="text-[9px] text-emerald-400/90 font-mono tracking-widest uppercase font-bold block mt-1">Manejo vs AUTEX</span>
+              </div>
+            )}
           </div>
+          
+          {/* Collapse toggle button on desktop */}
+          <button
+            onClick={toggleSidebarCollapse}
+            className="hidden md:flex p-1.5 bg-emerald-900/50 hover:bg-emerald-850 hover:text-white text-emerald-300 border border-emerald-800/60 rounded-lg cursor-pointer transition shrink-0"
+            title={isSidebarCollapsed ? "Expandir Menu" : "Recolher Menu"}
+            type="button"
+          >
+            {isSidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+          </button>
         </div>
 
         {/* ACTIVE PORTFOLIO WIDGET */}
-        <div className="p-5 border-b border-emerald-900/40 bg-emerald-950/30 space-y-3.5">
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] font-bold uppercase text-emerald-400 tracking-wider">Ações do Contrato</span>
+        {!isSidebarCollapsed ? (
+          <div className="p-5 border-b border-emerald-900/40 bg-emerald-950/30 space-y-3.5 transition-all">
+            <div className="flex justify-between items-center">
+              <span className="text-[10px] font-bold uppercase text-emerald-400 tracking-wider">Ações do Contrato</span>
+              <button
+                onClick={() => setIsCreateAutexOpen(true)}
+                className="text-[9px] bg-emerald-500 hover:bg-emerald-450 text-white font-sans font-bold uppercase px-2.5 py-1.5 transition shrink-0 cursor-pointer rounded-lg shadow-sm"
+                id="open-create-autex-modal-btn"
+              >
+                + Nova AUTEX
+              </button>
+            </div>
+
+            {activeAutex ? (
+              <div className="space-y-2">
+                <div className="relative">
+                  <select
+                    value={activeAutexId}
+                    onChange={(e) => {
+                       setActiveAutexId(e.target.value);
+                       setIsSidebarOpen(false); // Auto close on mobile
+                    }}
+                    className="w-full appearance-none pl-3.5 pr-8 py-2.5 bg-emerald-900/50 hover:bg-emerald-900 border border-emerald-850/60 text-white text-xs font-mono font-semibold uppercase tracking-wide rounded-xl focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition cursor-pointer"
+                    id="autex-selector"
+                  >
+                    {autexList.map((a) => (
+                      <option key={a.id} value={a.id} className="bg-emerald-950 text-white font-mono">
+                        AUTEX {a.numero.substring(0, 16)}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="absolute inset-y-0 right-0 pr-2.5 flex items-center pointer-events-none text-emerald-400">
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </div>
+                </div>
+
+                <div className="p-3.5 bg-emerald-950/40 border border-emerald-900/70 rounded-xl text-[11px] leading-relaxed space-y-1.5 text-emerald-250/95">
+                  <div className="flex justify-between font-mono">
+                    <span className="text-emerald-400 font-bold">Protocolo:</span>
+                    <span className="text-white font-bold">{activeAutex.numero}</span>
+                  </div>
+                  <div className="truncate" title={activeAutex.descricao}>
+                    <span className="text-emerald-400 font-bold">Local:</span> {activeAutex.descricao}
+                  </div>
+                  <div className="pt-2 flex flex-wrap gap-1 border-t border-emerald-905/40 pb-2">
+                    {activeAutex.detentores.map((det) => (
+                      <span key={det} className="bg-emerald-900/50 border border-emerald-805 text-emerald-305 px-2 py-0.5 rounded-lg text-[9px] font-medium tracking-tighter truncate max-w-[110px]" title={det}>
+                        {det}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="pt-2 flex items-center gap-1.5 border-t border-emerald-900/40">
+                    <button
+                      onClick={handleExportActiveAutex}
+                      title="Exportar esta AUTEX (.csv)"
+                      className="flex-1 py-1.5 px-2 text-[10px] bg-emerald-900 hover:bg-emerald-850 hover:text-white text-emerald-305 border border-emerald-800 transition cursor-pointer text-center font-bold rounded-lg uppercase leading-normal"
+                      type="button"
+                      id="sidebar-export-autex-btn"
+                    >
+                      Exportar
+                    </button>
+                    <button
+                      onClick={handleDeleteActiveAutex}
+                      title="Excluir esta AUTEX permanentemente"
+                      className="py-1.5 px-3 text-[10px] bg-rose-950/30 hover:bg-rose-900 hover:text-white text-rose-300 border border-rose-900/50 transition cursor-pointer text-center font-bold rounded-lg uppercase flex items-center justify-center leading-normal"
+                      type="button"
+                      id="sidebar-delete-autex-btn"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-[11px] text-emerald-400 italic">Nenhum contrato cadastrado</div>
+            )}
+          </div>
+        ) : (
+          /* Minimized folder plus icon on desktop */
+          <div className="hidden md:flex flex-col items-center py-4 border-b border-emerald-900/40 bg-emerald-950/30">
             <button
-              onClick={() => setIsCreateAutexOpen(true)}
-              className="text-[9px] bg-emerald-500 hover:bg-emerald-450 text-white font-sans font-bold uppercase px-2.5 py-1.5 transition shrink-0 cursor-pointer rounded-lg shadow-sm"
-              id="open-create-autex-modal-btn"
+              onClick={() => {
+                setIsSidebarCollapsed(false);
+                setIsCreateAutexOpen(true);
+              }}
+              className="w-10 h-10 bg-emerald-500 hover:bg-emerald-450 text-white rounded-xl flex items-center justify-center transition shadow-sm cursor-pointer"
+              title="Criar Nova AUTEX"
             >
-              + Nova AUTEX
+              <Plus className="w-5 h-5" />
             </button>
           </div>
-
-          {activeAutex ? (
-            <div className="space-y-2">
-              <div className="relative">
-                <select
-                  value={activeAutexId}
-                  onChange={(e) => {
-                     setActiveAutexId(e.target.value);
-                     setIsSidebarOpen(false); // Auto close on mobile
-                  }}
-                  className="w-full appearance-none pl-3.5 pr-8 py-2.5 bg-emerald-900/50 hover:bg-emerald-900 border border-emerald-850/60 text-white text-xs font-mono font-semibold uppercase tracking-wide rounded-xl focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition cursor-pointer"
-                  id="autex-selector"
-                >
-                  {autexList.map((a) => (
-                    <option key={a.id} value={a.id} className="bg-emerald-950 text-white font-mono">
-                      AUTEX {a.numero.substring(0, 16)}
-                    </option>
-                  ))}
-                </select>
-                <div className="absolute inset-y-0 right-0 pr-2.5 flex items-center pointer-events-none text-emerald-400">
-                  <ChevronDown className="w-3.5 h-3.5" />
-                </div>
-              </div>
-
-              <div className="p-3.5 bg-emerald-950/40 border border-emerald-900/70 rounded-xl text-[11px] leading-relaxed space-y-1.5 text-emerald-250/95">
-                <div className="flex justify-between font-mono">
-                  <span className="text-emerald-400 font-bold">Protocolo:</span>
-                  <span className="text-white font-bold">{activeAutex.numero}</span>
-                </div>
-                <div className="truncate" title={activeAutex.descricao}>
-                  <span className="text-emerald-400 font-bold">Local:</span> {activeAutex.descricao}
-                </div>
-                <div className="pt-2 flex flex-wrap gap-1 border-t border-emerald-900/40 pb-2">
-                  {activeAutex.detentores.map((det) => (
-                    <span key={det} className="bg-emerald-900/50 border border-emerald-800 text-emerald-300 px-2 py-0.5 rounded-lg text-[9px] font-medium tracking-tighter truncate max-w-[110px]" title={det}>
-                      {det}
-                    </span>
-                  ))}
-                </div>
-                <div className="pt-2 flex items-center gap-1.5 border-t border-emerald-900/40">
-                  <button
-                    onClick={handleExportActiveAutex}
-                    title="Exportar esta AUTEX (.csv)"
-                    className="flex-1 py-1.5 px-2 text-[10px] bg-emerald-900 hover:bg-emerald-850 hover:text-white text-emerald-305 border border-emerald-800 transition cursor-pointer text-center font-bold rounded-lg uppercase leading-normal"
-                    type="button"
-                    id="sidebar-export-autex-btn"
-                  >
-                    Exportar
-                  </button>
-                  <button
-                    onClick={handleDeleteActiveAutex}
-                    title="Excluir esta AUTEX permanentemente"
-                    className="py-1.5 px-3 text-[10px] bg-rose-950/30 hover:bg-rose-900 hover:text-white text-rose-300 border border-rose-900/50 transition cursor-pointer text-center font-bold rounded-lg uppercase flex items-center justify-center leading-normal"
-                    type="button"
-                    id="sidebar-delete-autex-btn"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="text-[11px] text-emerald-400 italic">Nenhum contrato cadastrado</div>
-          )}
-        </div>
+        )}
 
         {/* VERTICAL NAVLINKS */}
-        <nav className="flex-1 px-3 py-4 space-y-1.5" id="sidebar-navigation">
+        <nav className={`flex-1 ${isSidebarCollapsed ? "md:px-2 py-4" : "px-3 py-4"} space-y-1.5`} id="sidebar-navigation">
           <button
             type="button"
             onClick={() => {
               setActiveTab("painel");
               setIsSidebarOpen(false);
             }}
-            className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase tracking-wider transition-all duration-150 rounded-xl cursor-pointer ${
+            title="Painel de Saldos"
+            className={`w-full flex items-center transition-all duration-150 rounded-xl cursor-pointer ${
+              isSidebarCollapsed ? "md:justify-center md:px-2 md:py-3.5 px-4 py-3 gap-3" : "gap-3 px-4 py-3"
+            } ${
               activeTab === "painel"
                 ? "bg-emerald-800 text-white shadow-sm"
                 : "text-emerald-300 hover:text-white hover:bg-emerald-900/40"
             }`}
           >
             <LayoutDashboard className="w-4 h-4 shrink-0" />
-            <span>📊 Painel de Saldos</span>
+            {!isSidebarCollapsed && <span>📊 Painel de Saldos</span>}
           </button>
 
           <button
@@ -1145,14 +1191,17 @@ export default function App() {
               setActiveTab("lancamento");
               setIsSidebarOpen(false);
             }}
-            className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase tracking-wider transition-all duration-150 rounded-xl cursor-pointer ${
+            title="Baixar Lançamentos"
+            className={`w-full flex items-center transition-all duration-150 rounded-xl cursor-pointer ${
+              isSidebarCollapsed ? "md:justify-center md:px-2 md:py-3.5 px-4 py-3 gap-3" : "gap-3 px-4 py-3"
+            } ${
               activeTab === "lancamento"
                 ? "bg-emerald-800 text-white shadow-sm"
                 : "text-emerald-300 hover:text-white hover:bg-emerald-900/40"
             }`}
           >
             <FileText className="w-4 h-4 shrink-0" />
-            <span>✍️ Baixar Lançamentos</span>
+            {!isSidebarCollapsed && <span>✍️ Baixar Lançamentos</span>}
           </button>
 
           <button
@@ -1161,14 +1210,17 @@ export default function App() {
               setActiveTab("logistica");
               setIsSidebarOpen(false);
             }}
-            className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase tracking-wider transition-all duration-150 rounded-xl cursor-pointer ${
+            title="Módulo de Logística"
+            className={`w-full flex items-center transition-all duration-150 rounded-xl cursor-pointer ${
+              isSidebarCollapsed ? "md:justify-center md:px-2 md:py-3.5 px-4 py-3 gap-3" : "gap-3 px-4 py-3"
+            } ${
               activeTab === "logistica"
                 ? "bg-emerald-800 text-white shadow-sm"
                 : "text-emerald-300 hover:text-white hover:bg-emerald-900/40"
             }`}
           >
             <Truck className="w-4 h-4 shrink-0" />
-            <span>🚚 Módulo de Logística</span>
+            {!isSidebarCollapsed && <span>🚚 Módulo de Logística</span>}
           </button>
 
           <button
@@ -1177,14 +1229,17 @@ export default function App() {
               setActiveTab("relatorios");
               setIsSidebarOpen(false);
             }}
-            className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase tracking-wider transition-all duration-150 rounded-xl cursor-pointer ${
+            title="Módulo de Relatórios"
+            className={`w-full flex items-center transition-all duration-150 rounded-xl cursor-pointer ${
+              isSidebarCollapsed ? "md:justify-center md:px-2 md:py-3.5 px-4 py-3 gap-3" : "gap-3 px-4 py-3"
+            } ${
               activeTab === "relatorios"
                 ? "bg-emerald-800 text-white shadow-sm"
                 : "text-emerald-300 hover:text-white hover:bg-emerald-900/40"
             }`}
           >
             <FileSpreadsheet className="w-4 h-4 shrink-0" />
-            <span>📋 Módulo de Relatórios</span>
+            {!isSidebarCollapsed && <span>📋 Módulo de Relatórios</span>}
           </button>
 
           <button
@@ -1193,14 +1248,17 @@ export default function App() {
               setActiveTab("serraria");
               setIsSidebarOpen(false);
             }}
-            className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase tracking-wider transition-all duration-150 rounded-xl cursor-pointer ${
+            title="Módulo Serraria"
+            className={`w-full flex items-center transition-all duration-150 rounded-xl cursor-pointer ${
+              isSidebarCollapsed ? "md:justify-center md:px-2 md:py-3.5 px-4 py-3 gap-3" : "gap-3 px-4 py-3"
+            } ${
               activeTab === "serraria"
                 ? "bg-emerald-800 text-white shadow-sm"
                 : "text-emerald-300 hover:text-white hover:bg-emerald-900/40"
             }`}
           >
             <Factory className="w-4 h-4 shrink-0" />
-            <span>🪚 Módulo Serraria</span>
+            {!isSidebarCollapsed && <span>🪚 Módulo Serraria</span>}
           </button>
 
           <button
@@ -1209,14 +1267,17 @@ export default function App() {
               setActiveTab("backup");
               setIsSidebarOpen(false);
             }}
-            className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase tracking-wider transition-all duration-150 rounded-xl cursor-pointer ${
+            title="Módulo Backup"
+            className={`w-full flex items-center transition-all duration-150 rounded-xl cursor-pointer ${
+              isSidebarCollapsed ? "md:justify-center md:px-2 md:py-3.5 px-4 py-3 gap-3" : "gap-3 px-4 py-3"
+            } ${
               activeTab === "backup"
                 ? "bg-emerald-800 text-white shadow-sm"
                 : "text-emerald-300 hover:text-white hover:bg-emerald-900/40"
             }`}
           >
             <Database className="w-4 h-4 shrink-0" />
-            <span>💾 Módulo Backup</span>
+            {!isSidebarCollapsed && <span>💾 Módulo Backup</span>}
           </button>
 
           <button
@@ -1225,43 +1286,45 @@ export default function App() {
               setActiveTab("usuarios");
               setIsSidebarOpen(false);
             }}
-            className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase tracking-wider transition-all duration-150 rounded-xl cursor-pointer ${
+            title="Controle de Usuários"
+            className={`w-full flex items-center transition-all duration-150 rounded-xl cursor-pointer ${
+              isSidebarCollapsed ? "md:justify-center md:px-2 md:py-3.5 px-4 py-3 gap-3" : "gap-3 px-4 py-3"
+            } ${
               activeTab === "usuarios"
                 ? "bg-emerald-800 text-white shadow-sm"
                 : "text-emerald-300 hover:text-white hover:bg-emerald-900/40"
             }`}
           >
             <Shield className="w-4 h-4 shrink-0" />
-            <span>👥 Controle de Usuários</span>
+            {!isSidebarCollapsed && <span>👥 Controle de Usuários</span>}
           </button>
         </nav>
 
         {/* OPERATOR INFO & UTILITIES */}
-        <div className="p-5 border-t border-emerald-900/40 bg-emerald-950/50 text-[10px] space-y-3 font-mono tracking-wide">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-450 animate-pulse shrink-0"></span>
-              <span className="text-emerald-300/80">Operador: {currentUser}</span>
-            </div>
+        <div className={`p-4 border-t border-emerald-900/40 bg-emerald-950/50 text-[10px] flex ${isSidebarCollapsed ? "md:flex-col items-center gap-4 text-center justify-center py-6" : "items-center justify-between"} font-mono tracking-wide transition-all`}>
+          {isSidebarCollapsed ? (
             <button
               onClick={handleLogout}
-              className="px-2 py-0.5 bg-rose-950/60 hover:bg-rose-900 text-rose-300 hover:text-white border border-rose-900/60 rounded-md text-[8px] font-bold uppercase transition"
-              title="Encerrar Sessão Segura"
+              className="p-2.5 bg-rose-950/60 hover:bg-rose-900 text-rose-300 hover:text-white border border-rose-900/60 rounded-xl transition flex items-center justify-center cursor-pointer"
+              title={`Sair da Sessão (Operador: ${currentUser})`}
             >
-              SAIR
+              <User className="w-4 h-4 text-emerald-400 group-hover:text-rose-400" />
             </button>
-          </div>
-          <div className="flex items-center justify-between text-emerald-400/70 border-t border-emerald-900/40 pt-2.5">
-            <span>Redefinir Demonstração</span>
-            <button
-              onClick={handleResetDefaults}
-              title="Redefinir para dados iniciais"
-              className="p-1.5 bg-emerald-900 hover:text-white hover:bg-emerald-850 text-emerald-400 transition cursor-pointer rounded-lg"
-              id="reset-demo-sidebar-btn"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
-          </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-450 animate-pulse shrink-0"></span>
+                <span className="text-emerald-300/80">Operador: {currentUser}</span>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="px-2 py-0.5 bg-rose-950/60 hover:bg-rose-900 text-rose-300 hover:text-white border border-rose-900/60 rounded-md text-[8px] font-bold uppercase transition"
+                title="Encerrar Sessão Segura"
+              >
+                SAIR
+              </button>
+            </>
+          )}
         </div>
       </aside>
 

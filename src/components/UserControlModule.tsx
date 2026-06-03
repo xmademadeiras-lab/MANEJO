@@ -120,7 +120,26 @@ export default function UserControlModule({
     const saved = localStorage.getItem("etw_user_accounts");
     if (saved) {
       try {
-        setUsers(JSON.parse(saved));
+        const parsed = JSON.parse(saved) as UserAccount[];
+        const hasCosta = parsed.some(u => u.username.toUpperCase() === "COSTA");
+        if (!hasCosta) {
+          const costaAccount: UserAccount = {
+            id: "user-master",
+            username: "COSTA",
+            senha: "1318",
+            nome: "Diretor Costa (Master)",
+            cargo: "Administrador Geral Integrado",
+            role: "admin",
+            ativo: true,
+            dataCriacao: "2026-06-03",
+            permissoes: ["Visualização Completa", "Lançar Abates", "Configurar Logística", "Industrializar Serraria", "Efetuar Backup", "Controle de Usuários"]
+          };
+          const updated = [costaAccount, ...parsed];
+          localStorage.setItem("etw_user_accounts", JSON.stringify(updated));
+          setUsers(updated);
+        } else {
+          setUsers(parsed);
+        }
       } catch (e) {
         setUsers(DEFAULT_USERS);
       }
