@@ -1334,8 +1334,23 @@ export default function App() {
           {/* PWA Install Action Button */}
           <button
             type="button"
-            onClick={() => {
-              setIsPwaModalOpen(true);
+            onClick={async () => {
+              if (deferredPrompt) {
+                try {
+                  deferredPrompt.prompt();
+                  const { outcome } = await deferredPrompt.userChoice;
+                  if (outcome === "accepted") {
+                    setIsPwaInstalled(true);
+                    setDeferredPrompt(null);
+                    handleAddSecurityLog("PROCESSO PWA", "Aplicativo de gerenciamento de AUTEX instalado via clique direto do menu", "sucesso");
+                  }
+                } catch (err) {
+                  console.error("Erro ao invocar prompt nativo:", err);
+                  setIsPwaModalOpen(true);
+                }
+              } else {
+                setIsPwaModalOpen(true);
+              }
               setIsSidebarOpen(false);
             }}
             title="Baixar e Instalar Aplicativo (PWA)"
