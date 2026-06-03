@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from "react";
-import logoUrl from "./assets/images/etw_green_logo_1780489144222.png";
+import logoUrl from "./assets/images/logo_transparent.png";
 import { Autex, NfeDeduction, NfeImportResult, NfeItem, SawmillProcessLog } from "./types";
 import { DEFAULT_AUTEX_LIST } from "./data";
 import { parseNfeXml, generateSampleNfeXml } from "./utils/xmlParser";
@@ -16,6 +16,7 @@ import RelatoriosModule from "./components/RelatoriosModule";
 import BackupModule from "./components/BackupModule";
 import UserControlModule from "./components/UserControlModule";
 import LoginOverlay from "./components/LoginOverlay";
+import PwaInstallModal from "./components/PwaInstallModal";
 import { SecurityLog } from "./types";
 import { 
   FileText, 
@@ -50,7 +51,8 @@ import {
   TrendingUp,
   BarChart2,
   Database,
-  Shield
+  Shield,
+  Download
 } from "lucide-react";
 
 export default function App() {
@@ -145,6 +147,36 @@ export default function App() {
   const [filterTipo, setFilterTipo] = useState("");
   const [reportSubTab, setReportSubTab] = useState<"estoque" | "carregamentos" | "serraria">("estoque");
   
+  // PWA (Progressive Web App) Support
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isPwaInstalled, setIsPwaInstalled] = useState(false);
+  const [isPwaModalOpen, setIsPwaModalOpen] = useState(false);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    const handleAppInstalled = () => {
+      setIsPwaInstalled(true);
+      setDeferredPrompt(null);
+      handleAddSecurityLog("PROCESSO PWA", "Aplicativo de gerenciamento de AUTEX instalado com sucesso", "sucesso");
+    };
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("appinstalled", handleAppInstalled);
+
+    if (window.matchMedia("(display-mode: standalone)").matches || (navigator as any).standalone) {
+      setIsPwaInstalled(true);
+    }
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", handleAppInstalled);
+    };
+  }, []);
+
   // Modals / Imports
   const [isCreateAutexOpen, setIsCreateAutexOpen] = useState(false);
   const [isMappingOpen, setIsMappingOpen] = useState(false);
@@ -1298,6 +1330,29 @@ export default function App() {
             <Shield className="w-4 h-4 shrink-0" />
             {!isSidebarCollapsed && <span>👥 Controle de Usuários</span>}
           </button>
+
+          {/* PWA Install Action Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setIsPwaModalOpen(true);
+              setIsSidebarOpen(false);
+            }}
+            title="Baixar e Instalar Aplicativo (PWA)"
+            className={`w-full flex items-center transition-all duration-300 rounded-xl cursor-pointer py-3 border border-emerald-500/25 bg-emerald-900/30 hover:bg-emerald-900/60 text-emerald-300 hover:text-white ${
+              isSidebarCollapsed ? "md:justify-center md:px-2 md:py-3.5 px-4 gap-3" : "gap-3 px-4"
+            }`}
+          >
+            <Download className="w-4 h-4 text-emerald-400 shrink-0" />
+            {!isSidebarCollapsed && (
+              <span className="flex items-center gap-1.5 font-bold text-left leading-none">
+                📥 Instalar WebApp
+                {deferredPrompt && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                )}
+              </span>
+            )}
+          </button>
         </nav>
 
         {/* OPERATOR INFO & UTILITIES */}
@@ -2149,6 +2204,16 @@ export default function App() {
         }}
         onConfirm={handleConfirmMapping}
         onAddAutexItem={handleAddAutexItemOnTheFly}
+      />
+
+      <PwaInstallModal
+        isOpen={isPwaModalOpen}
+        onClose={() => setIsPwaModalOpen(false)}
+        deferredPrompt={deferredPrompt}
+        onInstallSuccess={() => {
+          setIsPwaInstalled(true);
+          handleAddSecurityLog("PROCESSO PWA", "Aplicativo instalado e inicializado via prompt", "sucesso");
+        }}
       />
 
     </div>

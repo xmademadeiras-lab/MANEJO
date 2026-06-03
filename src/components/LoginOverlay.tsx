@@ -6,6 +6,7 @@
 import React, { useState } from "react";
 import { User, Lock, Shield, AlertCircle, ArrowRight, Eye, EyeOff } from "lucide-react";
 import { UserAccount } from "../types";
+import logoUrl from "../assets/images/logo_transparent.png";
 
 interface LoginOverlayProps {
   onLogin: (username: string) => void;
@@ -151,8 +152,8 @@ export default function LoginOverlay({ onLogin, onAddSecurityLog }: LoginOverlay
         
         {/* Header Branding */}
         <div className="text-center space-y-3.5">
-          <div className="mx-auto w-16 h-16 bg-emerald-950 border border-emerald-600/30 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-950/40 animate-pulse">
-            <Shield className="w-8 h-8 text-emerald-400" />
+          <div className="mx-auto w-24 h-24 bg-transparent flex items-center justify-center relative z-10 transition-transform hover:scale-105 duration-300">
+            <img src={logoUrl} alt="ETW Logo" className="w-22 h-22 object-contain" referrerPolicy="no-referrer" />
           </div>
           <div>
             <span className="text-[10px] uppercase font-bold tracking-widest text-emerald-450 bg-emerald-950/80 px-3 py-1 rounded-full border border-emerald-900/50">
