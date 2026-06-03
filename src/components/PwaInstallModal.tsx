@@ -25,7 +25,8 @@ export default function PwaInstallModal({
   deferredPrompt, 
   onInstallSuccess 
 }: PwaInstallModalProps) {
-  const [activeTab, setActiveTab] = useState<"tutorial" | "beneficios">("tutorial");
+  const [activeTab, setActiveTab ] = useState<"tutorial" | "beneficios">("tutorial");
+  const [copied, setCopied] = useState(false);
   const [osTab, setOsTab] = useState<"android" | "ios" | "desktop">(() => {
     if (typeof navigator !== "undefined") {
       const ua = navigator.userAgent.toLowerCase();
@@ -34,6 +35,8 @@ export default function PwaInstallModal({
     }
     return "desktop";
   });
+
+  const isInsideIframe = typeof window !== "undefined" && window.self !== window.top;
 
   if (!isOpen) return null;
 
@@ -115,7 +118,55 @@ export default function PwaInstallModal({
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
           {activeTab === "tutorial" ? (
             <div className="space-y-4">
-              {deferredPrompt ? (
+              {isInsideIframe ? (
+                /* Inside AI Studio Iframe Warning and Open Link */
+                <div className="bg-amber-950/40 border border-amber-850/60 p-4 rounded-xl text-center space-y-4 shadow-inner animate-fade-in">
+                  <div className="mx-auto w-12 h-12 bg-amber-900/30 border border-amber-600/40 rounded-full flex items-center justify-center text-amber-400">
+                    <Info className="w-6 h-6 animate-pulse" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-amber-400 uppercase tracking-wide">
+                      Visualizador de Testes (Iframe)
+                    </h4>
+                    <p className="text-[11px] text-slate-350 mt-1.5 leading-relaxed">
+                      O Google Chrome e Safari não permitem instalar aplicativos Web (PWAs) diretamente por dentro de frames incorporados por questões de segurança.
+                    </p>
+                    <p className="text-[11px] text-emerald-400 mt-2 font-medium">
+                      Para instalar este site instantaneamente na sua tela inicial, basta clicar no botão abaixo para abrir o painel em uma nova aba fora do visualizador do AI Studio!
+                    </p>
+                  </div>
+                  
+                  <div className="pt-1.5 space-y-2">
+                    <button
+                      onClick={() => {
+                        window.open(window.location.href, "_blank");
+                        onClose();
+                      }}
+                      className="w-full bg-emerald-500 hover:bg-emerald-450 hover:shadow-lg text-white font-sans font-bold uppercase py-3 rounded-xl transition duration-150 flex items-center justify-center gap-2 cursor-pointer text-xs"
+                      type="button"
+                    >
+                      <Share className="w-4 h-4" />
+                      Abrir em Nova Aba & Instalar
+                    </button>
+                    
+                    <button
+                      onClick={() => {
+                        try {
+                          navigator.clipboard.writeText(window.location.href);
+                          setCopied(true);
+                          setTimeout(() => setCopied(false), 2000);
+                        } catch (err) {
+                          console.error(err);
+                        }
+                      }}
+                      className="w-full bg-slate-850 hover:bg-slate-800 text-slate-300 font-sans font-bold uppercase py-2.5 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer text-[10px]"
+                      type="button"
+                    >
+                      {copied ? "✓ Copiado com sucesso!" : "Copiar Link do Sistema"}
+                    </button>
+                  </div>
+                </div>
+              ) : deferredPrompt ? (
                 /* Native prompt available */
                 <div className="bg-emerald-950/40 border border-emerald-800/50 p-4 rounded-xl text-center space-y-3.5 shadow-inner">
                   <div className="mx-auto w-12 h-12 bg-emerald-900/40 border border-emerald-500/50 rounded-full flex items-center justify-center text-emerald-450 shadow-md">
@@ -123,7 +174,7 @@ export default function PwaInstallModal({
                   </div>
                   <div>
                     <h4 className="text-xs font-bold text-white uppercase tracking-wide">
-                      Seu navegado suporta instalação direta!
+                      Seu navegador suporta instalação direta!
                     </h4>
                     <p className="text-[11px] text-slate-350 mt-1 leading-relaxed">
                       Clique no botão de instalação rápida abaixo para baixar o sistema de forma instantânea em sua tela inicial.
