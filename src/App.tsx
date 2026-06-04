@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from "react";
-import logoUrl from "./assets/images/logo_transparent.png";
+const logoUrl = "/logo.png";
 import { Autex, NfeDeduction, NfeImportResult, NfeItem, SawmillProcessLog } from "./types";
 import { DEFAULT_AUTEX_LIST } from "./data";
 import { parseNfeXml, generateSampleNfeXml } from "./utils/xmlParser";
@@ -1029,7 +1029,23 @@ export default function App() {
 
   if (!isAuthenticated) {
     return (
-      <LoginOverlay onLogin={handleLoginSuccess} onAddSecurityLog={handleAddSecurityLog} />
+      <>
+        <LoginOverlay 
+          onLogin={handleLoginSuccess} 
+          onAddSecurityLog={handleAddSecurityLog} 
+          deferredPrompt={deferredPrompt}
+          onOpenInstallModal={() => setIsPwaModalOpen(true)}
+        />
+        <PwaInstallModal
+          isOpen={isPwaModalOpen}
+          onClose={() => setIsPwaModalOpen(false)}
+          deferredPrompt={deferredPrompt}
+          onInstallSuccess={() => {
+            setIsPwaInstalled(true);
+            handleAddSecurityLog("PROCESSO PWA", "Aplicativo instalado e inicializado via prompt", "sucesso");
+          }}
+        />
+      </>
     );
   }
 

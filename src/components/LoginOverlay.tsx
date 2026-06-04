@@ -4,16 +4,23 @@
  */
 
 import React, { useState } from "react";
-import { User, Lock, Shield, AlertCircle, ArrowRight, Eye, EyeOff } from "lucide-react";
+import { User, Lock, Shield, AlertCircle, ArrowRight, Eye, EyeOff, Download, Info, ExternalLink } from "lucide-react";
 import { UserAccount } from "../types";
-import logoUrl from "../assets/images/logo_transparent.png";
+const logoUrl = "/logo.png";
 
 interface LoginOverlayProps {
   onLogin: (username: string) => void;
   onAddSecurityLog: (acao: string, detalhes: string, status: "sucesso" | "erro" | "alerta", userOverride?: string) => void;
+  deferredPrompt?: any;
+  onOpenInstallModal?: () => void;
 }
 
-export default function LoginOverlay({ onLogin, onAddSecurityLog }: LoginOverlayProps) {
+export default function LoginOverlay({ 
+  onLogin, 
+  onAddSecurityLog,
+  deferredPrompt,
+  onOpenInstallModal
+}: LoginOverlayProps) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -141,12 +148,43 @@ export default function LoginOverlay({ onLogin, onAddSecurityLog }: LoginOverlay
     }, 450);
   };
 
+  const isInsideIframe = typeof window !== "undefined" && window.self !== window.top;
+
   return (
     <div className="min-h-screen w-full bg-radial from-slate-900 via-emerald-950 to-slate-950 flex flex-col justify-center items-center p-4 relative overflow-hidden font-sans select-none">
       
       {/* Decorative ambient background blur vectors */}
       <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-emerald-700/10 rounded-full blur-3xl pointer-events-none"></div>
       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-teal-800/10 rounded-full blur-3xl pointer-events-none"></div>
+
+      {/* Early Iframe warning banner highlighting PWA install requirements */}
+      {isInsideIframe && (
+        <div className="w-full max-w-md mb-6 bg-slate-900/95 border border-amber-500/30 rounded-2xl p-4 shadow-xl backdrop-blur-md relative z-10 animate-fade-in flex flex-col items-center gap-3">
+          <div className="flex gap-2.5 items-start">
+            <Info className="w-5 h-5 text-amber-500 shrink-0 mt-0.5 animate-pulse" />
+            <div className="space-y-1">
+              <h4 className="text-xs font-bold text-amber-400 uppercase tracking-widest">
+                Modo de Visualização Detectado
+              </h4>
+              <p className="text-[11px] text-slate-350 leading-relaxed">
+                Por regras de segurança dos navegadores, a função <strong className="text-white">BAIXAR/INSTALAR</strong> o aplicativo fica indisponível por dentro de visualizadores de código (Iframe).
+              </p>
+              <p className="text-[11.5px] text-emerald-450 font-medium">
+                Para baixar e adicionar o ícone na sua área de trabalho agora, você precisa abrir em uma nova aba fora do editor!
+              </p>
+            </div>
+          </div>
+          
+          <button
+            type="button"
+            onClick={() => window.open(window.location.href, "_blank")}
+            className="w-full mt-1.5 flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-450 text-white font-sans font-bold text-xs uppercase rounded-xl transition duration-150 hover:shadow-lg hover:shadow-emerald-500/10 cursor-pointer text-center"
+          >
+            <ExternalLink className="w-4 h-4" />
+            <span>Abrir em Nova Aba & Instalar</span>
+          </button>
+        </div>
+      )}
 
       <div className="w-full max-w-md bg-slate-900/90 border border-emerald-800/40 rounded-3xl p-8 md:p-10 shadow-2xl backdrop-blur-md relative z-10 transition-all">
         
@@ -248,6 +286,26 @@ export default function LoginOverlay({ onLogin, onAddSecurityLog }: LoginOverlay
         </div>
 
       </div>
+
+      {/* PWA download helper button on login page */}
+      {onOpenInstallModal && (
+        <div className="mt-6 z-10 w-full max-w-md animate-fade-in flex flex-col items-center">
+          <button
+            type="button"
+            onClick={onOpenInstallModal}
+            className="flex items-center gap-2 px-5 py-3 bg-emerald-950/60 hover:bg-emerald-900/80 hover:scale-102 active:scale-98 text-emerald-450 hover:text-white border border-emerald-500/25 hover:border-emerald-500/50 rounded-2xl text-xs font-bold transition-all shadow-lg cursor-pointer uppercase tracking-wider"
+          >
+            <Download className="w-4 h-4 animate-bounce" />
+            <span>Baixar e Instalar Aplicativo (PWA)</span>
+          </button>
+          
+          {typeof window !== "undefined" && window.self !== window.top && (
+            <p className="text-[10px] text-slate-500 mt-2 text-center max-w-xs leading-normal">
+              Você está visualizando por dentro do editor. Clique para abrir em nova aba e instalar direto na tela inicial.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

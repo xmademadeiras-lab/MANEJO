@@ -10,7 +10,7 @@ import {
   ArrowRight,
   Info
 } from "lucide-react";
-import logoUrl from "../assets/images/logo_transparent.png";
+const logoUrl = "/logo.png";
 
 interface PwaInstallModalProps {
   isOpen: boolean;
