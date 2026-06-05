@@ -545,7 +545,10 @@ export default function App() {
           const descricao = descIdx !== -1 && row[descIdx] ? row[descIdx].trim() : "Importado via CSV";
           const dataCriacao = dateIdx !== -1 && row[dateIdx] ? row[dateIdx].trim() : new Date().toISOString().split("T")[0];
           const itemId = idIdx !== -1 && row[idIdx] ? row[idIdx].trim() : `item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-          const especie = row[especIdx] ? row[especIdx].trim() : "Espécie Não Informada";
+          const rawEspecie = row[especIdx] ? row[especIdx].trim() : "Espécie Não Informada";
+          const especie = rawEspecie 
+            ? rawEspecie.charAt(0).toUpperCase() + rawEspecie.slice(1) 
+            : "Espécie Não Informada";
           
           // Support decimal notation like 120,50 and 120.50
           let volStr = volIdx !== -1 ? row[volIdx].trim() : "0";

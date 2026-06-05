@@ -238,12 +238,18 @@ export default function CreateAutexModal({ isOpen, onClose, onSave }: CreateAute
     }
 
     // Map items to have proper IDs and auto-fill donor if empty and we have only 1 donor
-    const autexItems: AutexItem[] = items.map((item, idx) => ({
-      id: `item-gen-${Date.now()}-${idx}`,
-      especie: item.especie,
-      volumeAutorizado: item.volumeAutorizado || 0,
-      dono: item.dono.trim() || uniqueDetentores[0]
-    }));
+    const autexItems: AutexItem[] = items.map((item, idx) => {
+      const trimmedEspecie = item.especie.trim();
+      const formattedEspecie = trimmedEspecie 
+        ? trimmedEspecie.charAt(0).toUpperCase() + trimmedEspecie.slice(1)
+        : "Espécie Omitida";
+      return {
+        id: `item-gen-${Date.now()}-${idx}`,
+        especie: formattedEspecie,
+        volumeAutorizado: item.volumeAutorizado || 0,
+        dono: item.dono.trim() || uniqueDetentores[0]
+      };
+    });
 
     const newAutex: Autex = {
       id: `autex-${Date.now()}`,
@@ -395,15 +401,31 @@ export default function CreateAutexModal({ isOpen, onClose, onSave }: CreateAute
                 <div key={idx} className="p-4 grid grid-cols-1 md:grid-cols-12 gap-3 items-end bg-white">
                   <div className="md:col-span-4">
                     <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Espécie</label>
-                    <select
+                    <input
+                      type="text"
+                      list={`species-datalist-${idx}`}
                       value={item.especie}
                       onChange={e => handleItemChange(idx, "especie", e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 transition font-bold"
-                    >
+                      onBlur={e => {
+                        const val = e.target.value.trim();
+                        if (val) {
+                          // Format cleanly (capitalise first character)
+                          const formattedValue = val.charAt(0).toUpperCase() + val.slice(1);
+                          if (!customSpeciesList.includes(formattedValue)) {
+                            setCustomSpeciesList(prev => [...prev, formattedValue]);
+                          }
+                          handleItemChange(idx, "especie", formattedValue);
+                        }
+                      }}
+                      placeholder="Ex: Ipê, Jatobá, Cumaru..."
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 transition"
+                      required
+                    />
+                    <datalist id={`species-datalist-${idx}`}>
                       {customSpeciesList.map(sp => (
-                        <option key={sp} value={sp}>{sp}</option>
+                        <option key={sp} value={sp} />
                       ))}
-                    </select>
+                    </datalist>
                   </div>
 
                   <div className="md:col-span-3">
