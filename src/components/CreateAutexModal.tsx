@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { Autex, AutexItem } from "../types";
 import { AVAILABLE_SPECIES } from "../data";
-import { Plus, X, Trash2 } from "lucide-react";
+import { Plus, X, Trash2, Upload, FileSpreadsheet, Download, Info } from "lucide-react";
 
 interface CreateAutexModalProps {
   isOpen: boolean;
@@ -21,8 +21,181 @@ export default function CreateAutexModal({ isOpen, onClose, onSave }: CreateAute
   const [items, setItems] = useState<Omit<AutexItem, "id">[]>([
     { especie: "Ipê", volumeAutorizado: 100, dono: "" }
   ]);
+  const [customSpeciesList, setCustomSpeciesList] = useState<string[]>(AVAILABLE_SPECIES);
+  const [importStatus, setImportStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
+
+  const handleDownloadTemplate = () => {
+    // Generate UTF-8 encoded CSV with BOM to avoid special character issues in Excel
+    const headers = "Espécie;Volume Autorizado;Dono da Madeira";
+    const rows = [
+      "Ipê;450.00;Madeiras Juruá Eireli",
+      "Jatobá;300.25;Madeiras Juruá Eireli",
+      "Cedro;180.50;Fazenda Vista Alegre",
+      "Angelim-pedra;520.00;Fazenda Vista Alegre"
+    ];
+    const csvContent = "\uFEFF" + [headers, ...rows].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", "modelo_importacao_itens_autex.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        if (!text) {
+          throw new Error("O arquivo está vazio.");
+        }
+
+        const lines = text.split(/\r?\n/);
+        const cleanLines = lines.map(line => line.trim()).filter(line => line.length > 0);
+        
+        if (cleanLines.length === 0) {
+          throw new Error("Nenhuma linha de dados encontrada no arquivo CSV.");
+        }
+
+        // Detect delimiter: semicolon or comma
+        const firstLine = cleanLines[0];
+        const semicolonCount = (firstLine.match(/;/g) || []).length;
+        const commaCount = (firstLine.match(/,/g) || []).length;
+        const delimiter = semicolonCount >= commaCount ? ';' : ',';
+
+        // Parse first line to check for headers
+        const firstLineFields = firstLine.split(delimiter).map(v => v.trim().replace(/^["']|["']$/g, ""));
+        const hasHeaders = firstLineFields.some(field => {
+          const f = field.toLowerCase();
+          return f.includes("espec") || f.includes("espéc") || f.includes("vol") || f.includes("dono") || f.includes("proprie") || f.includes("detent") || f.includes("owner");
+        });
+
+        let colEspecieIdx = 0;
+        let colVolumeIdx = 1;
+        let colDonoIdx = 2;
+        let dataStartIdx = 0;
+
+        if (hasHeaders) {
+          dataStartIdx = 1;
+          firstLineFields.forEach((field, idx) => {
+            const f = field.toLowerCase();
+            if (f.includes("espec") || f.includes("espéc") || f.includes("nome") || f.includes("madeira") || f.includes("species")) {
+              colEspecieIdx = idx;
+            } else if (f.includes("vol") || f.includes("quant") || f.includes("limite") || f.includes("autoriz") || f.includes("m³")) {
+              colVolumeIdx = idx;
+            } else if (f.includes("dono") || f.includes("proprie") || f.includes("detent") || f.includes("owner") || f.includes("empres") || f.includes("fili") || f.includes("parceir")) {
+              colDonoIdx = idx;
+            }
+          });
+        }
+
+        const parsedItems: Omit<AutexItem, "id">[] = [];
+        const newCustomSpecies = [...customSpeciesList];
+
+        for (let i = dataStartIdx; i < cleanLines.length; i++) {
+          const rawLine = cleanLines[i];
+          // Simple split by delimiter with quote handling
+          const fields: string[] = [];
+          let currentField = "";
+          let inQuotes = false;
+          for (let j = 0; j < rawLine.length; j++) {
+            const char = rawLine[j];
+            if (char === '"' || char === "'") {
+              inQuotes = !inQuotes;
+            } else if (char === delimiter && !inQuotes) {
+              fields.push(currentField.trim());
+              currentField = "";
+            } else {
+              currentField += char;
+            }
+          }
+          fields.push(currentField.trim());
+          const cleanFields = fields.map(v => v.replace(/^["']|["']$/g, ""));
+
+          if (cleanFields.length < 2) continue; // skip invalid short lines
+
+          // Extract values
+          const rawEspecie = cleanFields[colEspecieIdx];
+          let rawVolume = cleanFields[colVolumeIdx] || "0";
+          const rawDono = cleanFields[colDonoIdx] || "";
+
+          if (!rawEspecie) continue;
+
+          // Clean Brazilian float number format (e.g. 1.250,50 or 1250,50)
+          rawVolume = rawVolume.replace(/\s/g, "");
+          if (rawVolume.includes(",") && rawVolume.includes(".")) {
+            rawVolume = rawVolume.replace(/\./g, "").replace(",", ".");
+          } else if (rawVolume.includes(",")) {
+            rawVolume = rawVolume.replace(",", ".");
+          }
+          const volumeAutorizado = parseFloat(rawVolume) || 0;
+
+          // Capitalize first letter of specie name for alignment
+          const especieFormatted = rawEspecie.charAt(0).toUpperCase() + rawEspecie.slice(1);
+          
+          parsedItems.push({
+            especie: especieFormatted,
+            volumeAutorizado: volumeAutorizado,
+            dono: rawDono
+          });
+
+          if (!newCustomSpecies.includes(especieFormatted)) {
+            newCustomSpecies.push(especieFormatted);
+          }
+        }
+
+        if (parsedItems.length === 0) {
+          throw new Error("Nenhum item válido pôde ser extraído do arquivo CSV.");
+        }
+
+        setCustomSpeciesList(newCustomSpecies);
+        setItems(parsedItems);
+
+        // Prefill detentores automatically from items
+        const importedDonos = parsedItems.map(item => item.dono.trim()).filter(d => d.length > 0);
+        const uniqueImportedDonos = Array.from(new Set(importedDonos));
+        if (uniqueImportedDonos.length > 0) {
+          setDetentoresInput(uniqueImportedDonos.join(", "));
+        }
+
+        setImportStatus({
+          type: "success",
+          message: `Sucesso! Importados ${parsedItems.length} itens da planilha.`
+        });
+
+        // Auto-clear status after 6 seconds
+        setTimeout(() => setImportStatus(null), 6000);
+      } catch (err: any) {
+        setImportStatus({
+          type: "error",
+          message: err.message || "Erro desconhecido ao processar arquivo."
+        });
+      }
+
+      // Reset file input value to allow uploading same file again
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    };
+
+    reader.onerror = () => {
+      setImportStatus({
+        type: "error",
+        message: "Erro ao ler o arquivo CSV."
+      });
+    };
+
+    reader.readAsText(file, "UTF-8");
+  };
 
   const handleAddItem = () => {
     setItems([...items, { especie: "Jatobá", volumeAutorizado: 100, dono: "" }]);
@@ -162,6 +335,61 @@ export default function CreateAutexModal({ isOpen, onClose, onSave }: CreateAute
               </button>
             </div>
 
+            {/* CSV Import Panel */}
+            <div className="bg-slate-50 border border-slate-200/60 rounded-xl p-4 space-y-3" id="csv-import-panel">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-start gap-2.5">
+                  <FileSpreadsheet className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <h5 className="text-[11px] font-bold text-slate-700 uppercase tracking-wide">Importar Itens da AUTEX via Planilha (.CSV)</h5>
+                    <p className="text-[10px] text-slate-500 leading-normal">
+                      Preencha a lista em lote automaticamente. O CSV deve conter as colunas: <strong className="text-slate-700">Espécie, Volume Autorizado, Dono da Madeira (Proprietário)</strong>.
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleDownloadTemplate}
+                    className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 hover:border-slate-300 text-[10px] font-bold uppercase rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    title="Baixar modelo de CSV estruturado"
+                  >
+                    <Download className="w-3.5 h-3.5 text-slate-400" />
+                    <span>Modelo CSV</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-[10px] font-bold uppercase rounded-lg shadow-xs hover:shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Importar CSV</span>
+                  </button>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileUpload}
+                    accept=".csv"
+                    className="hidden"
+                  />
+                </div>
+              </div>
+
+              {/* CSV Import feedback banner */}
+              {importStatus && (
+                <div className={`p-3 rounded-lg border flex items-start gap-2 text-xs transition-all ${
+                  importStatus.type === "success" 
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-800" 
+                    : "bg-rose-50 border-rose-200 text-rose-800"
+                }`}>
+                  <Info className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span className="font-semibold">{importStatus.message}</span>
+                </div>
+              )}
+            </div>
+
             <div className="border border-slate-150 rounded-xl divide-y divide-slate-100 bg-slate-50/20 overflow-hidden">
               {items.map((item, idx) => (
                 <div key={idx} className="p-4 grid grid-cols-1 md:grid-cols-12 gap-3 items-end bg-white">
@@ -172,7 +400,7 @@ export default function CreateAutexModal({ isOpen, onClose, onSave }: CreateAute
                       onChange={e => handleItemChange(idx, "especie", e.target.value)}
                       className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 transition font-bold"
                     >
-                      {AVAILABLE_SPECIES.map(sp => (
+                      {customSpeciesList.map(sp => (
                         <option key={sp} value={sp}>{sp}</option>
                       ))}
                     </select>
