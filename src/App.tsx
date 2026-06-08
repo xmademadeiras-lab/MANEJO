@@ -19,6 +19,23 @@ import LoginOverlay from "./components/LoginOverlay";
 import PwaInstallModal from "./components/PwaInstallModal";
 import { SecurityLog } from "./types";
 import { 
+  isSupabaseConfigured,
+  fetchAutexListDb,
+  saveAutexInDb,
+  deleteAutexInDb,
+  fetchDeductionsDb,
+  saveDeductionsInDb,
+  fetchSawmillLogsDb,
+  saveSawmillLogsInDb,
+  fetchSecurityLogsDb,
+  saveSecurityLogInDb,
+  fetchUserAccountsDb,
+  saveUserAccountInDb,
+  syncAllLocalStorageToSupabase,
+  deleteDeductionInDb,
+  deleteSawmillLogInDb
+} from "./lib/supabase";
+import { 
   FileText, 
   Upload, 
   Plus, 
@@ -234,62 +251,205 @@ export default function App() {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- Initialize from LocalStorage or Default ---
-  useEffect(() => {
+  // --- Supabase Synchronization States ---
+  const [isDbLoading, setIsDbLoading] = useState(false);
+  const [supabaseSyncError, setSupabaseSyncError] = useState<string | null>(null);
+  const [isSyncingUp, setIsSyncingUp] = useState(false);
+
+  // Load from Supabase (or fallback instantly to local storage to guarantee ultra-fast, offline-capable boot)
+  const loadAllDataFromDb = async () => {
+    setIsDbLoading(true);
+    setSupabaseSyncError(null);
+
+    // 1. Initial quick load from local storage
     const savedAutex = localStorage.getItem("manejo_autex_list");
     const savedDeductions = localStorage.getItem("manejo_deductions_list");
     const savedActiveId = localStorage.getItem("manejo_active_autex_id");
+    const savedSawmillLogs = localStorage.getItem("sawmill_logs_list");
+
+    let initialAutex: Autex[] = DEFAULT_AUTEX_LIST;
+    let initialActiveId = DEFAULT_AUTEX_LIST[0]?.id || "";
+    let initialDeductions: NfeDeduction[] = [];
+    let initialSawmill: SawmillProcessLog[] = [];
 
     if (savedAutex) {
       try {
         const parsed = JSON.parse(savedAutex);
-        setAutexList(parsed);
+        initialAutex = parsed;
         if (savedActiveId && parsed.some((a: Autex) => a.id === savedActiveId)) {
-          setActiveAutexId(savedActiveId);
+          initialActiveId = savedActiveId;
         } else if (parsed.length > 0) {
-          setActiveAutexId(parsed[0].id);
+          initialActiveId = parsed[0].id;
         }
       } catch (e) {
-        setAutexList(DEFAULT_AUTEX_LIST);
-        setActiveAutexId(DEFAULT_AUTEX_LIST[0].id);
+        initialAutex = DEFAULT_AUTEX_LIST;
+        initialActiveId = DEFAULT_AUTEX_LIST[0]?.id || "";
       }
-    } else {
-      setAutexList(DEFAULT_AUTEX_LIST);
-      setActiveAutexId(DEFAULT_AUTEX_LIST[0].id);
     }
 
     if (savedDeductions) {
       try {
-        setDeductions(JSON.parse(savedDeductions));
-      } catch (e) {
-        setDeductions([]);
-      }
+        initialDeductions = JSON.parse(savedDeductions);
+      } catch (e) {}
     }
 
-    const savedSawmillLogs = localStorage.getItem("sawmill_logs_list");
     if (savedSawmillLogs) {
       try {
-        setSawmillLogs(JSON.parse(savedSawmillLogs));
-      } catch (e) {
-        setSawmillLogs([]);
+        initialSawmill = JSON.parse(savedSawmillLogs);
+      } catch (e) {}
+    }
+
+    setAutexList(initialAutex);
+    setActiveAutexId(initialActiveId);
+    setDeductions(initialDeductions);
+    setSawmillLogs(initialSawmill);
+
+    // 2. Fetch fresh live data from Supabase if configured
+    if (isSupabaseConfigured) {
+      try {
+        const dbAutexList = await fetchAutexListDb();
+        const dbDeductionsList = await fetchDeductionsDb();
+        const dbSawmillLogs = await fetchSawmillLogsDb();
+        const dbSecurityLogs = await fetchSecurityLogsDb();
+
+        if (dbAutexList !== null) {
+          setAutexList(dbAutexList);
+          if (dbAutexList.length > 0) {
+            if (!initialActiveId || !dbAutexList.some(a => a.id === initialActiveId)) {
+              setActiveAutexId(dbAutexList[0].id);
+            } else {
+              setActiveAutexId(initialActiveId);
+            }
+          } else {
+            setActiveAutexId("");
+          }
+        }
+
+        if (dbDeductionsList !== null) {
+          setDeductions(dbDeductionsList);
+        }
+
+        if (dbSawmillLogs !== null) {
+          setSawmillLogs(dbSawmillLogs);
+        }
+
+        if (dbSecurityLogs !== null) {
+          setSecurityLogs(dbSecurityLogs);
+        }
+
+        handleAddSecurityLog(
+          "SINC_NUVEM_OK", 
+          "Conectado ao Supabase: Dados operacionais e de saldos sincronizados em lote com a nuvem.", 
+          "sucesso"
+        );
+      } catch (err: any) {
+        console.error("Erro ao sincronizar dados com Supabase:", err);
+        setSupabaseSyncError("Banco de dados indisponível ou migrações incompletas. Usando armazenamento offline local.");
       }
     }
+    setIsDbLoading(false);
+  };
+
+  useEffect(() => {
+    loadAllDataFromDb();
   }, []);
 
-  // --- Save states to LocalStorage ---
-  const saveAutexList = (list: Autex[]) => {
+  // Sync / Push all local state values to SQL on-demand (Manual/Bulk uploads)
+  const handleForceDbSync = async () => {
+    if (!isSupabaseConfigured) return;
+    setIsSyncingUp(true);
+    setSupabaseSyncError(null);
+    try {
+      const savedUsersStr = localStorage.getItem("etw_user_accounts");
+      const savedUsers = savedUsersStr ? JSON.parse(savedUsersStr) : [];
+      
+      const res = await syncAllLocalStorageToSupabase(
+        autexList,
+        deductions,
+        sawmillLogs,
+        savedUsers,
+        securityLogs
+      );
+
+      if (res.success) {
+        handleAddSecurityLog(
+          "SINC_FORCADA_OK", 
+          "Sincronização manual enviada com sucesso ao servidor Supabase.", 
+          "sucesso"
+        );
+        alert(res.message);
+      } else {
+        throw new Error(res.message);
+      }
+    } catch (err: any) {
+      setSupabaseSyncError(`Sincronização falhou: ${err.message || err}`);
+      alert(`Erro na sincronização manual: ${err.message || err}`);
+    } finally {
+      setIsSyncingUp(false);
+    }
+  };
+
+  // --- Save states to LocalStorage and stream sync to Cloud ---
+  const saveAutexList = async (list: Autex[]) => {
+    const previous = autexList;
     setAutexList(list);
     localStorage.setItem("manejo_autex_list", JSON.stringify(list));
+
+    if (isSupabaseConfigured) {
+      try {
+        // Find deleted ones
+        const deleted = previous.filter(p => !list.some(l => l.id === p.id));
+        for (const d of deleted) {
+          await deleteAutexInDb(d.id);
+        }
+        // Save current list
+        for (const a of list) {
+          await saveAutexInDb(a);
+        }
+      } catch (err) {
+        console.error("Falha ao propagar alterações de AUTEX para Supabase:", err);
+      }
+    }
   };
 
-  const saveDeductions = (list: NfeDeduction[]) => {
+  const saveDeductions = async (list: NfeDeduction[]) => {
+    const previous = deductions;
     setDeductions(list);
     localStorage.setItem("manejo_deductions_list", JSON.stringify(list));
+
+    if (isSupabaseConfigured) {
+      try {
+        const deleted = previous.filter(p => !list.some(l => l.id === p.id));
+        for (const d of deleted) {
+          await deleteDeductionInDb(d.id);
+        }
+        if (list.length > 0) {
+          await saveDeductionsInDb(list);
+        }
+      } catch (err) {
+        console.error("Falha ao propagar faturamento para o Supabase:", err);
+      }
+    }
   };
 
-  const saveSawmillLogs = (list: SawmillProcessLog[]) => {
+  const saveSawmillLogs = async (list: SawmillProcessLog[]) => {
+    const previous = sawmillLogs;
     setSawmillLogs(list);
     localStorage.setItem("sawmill_logs_list", JSON.stringify(list));
+
+    if (isSupabaseConfigured) {
+      try {
+        const deleted = previous.filter(p => !list.some(l => l.id === p.id));
+        for (const d of deleted) {
+          await deleteSawmillLogInDb(d.id);
+        }
+        if (list.length > 0) {
+          await saveSawmillLogsInDb(list);
+        }
+      } catch (err) {
+        console.error("Falha ao sincronizar logs de serraria com Supabase:", err);
+      }
+    }
   };
 
   // --- Active Autex object storage and persistence ---
@@ -1440,6 +1600,70 @@ export default function App() {
         
         {/* Workspace Container */}
         <main className="flex-1 p-4 md:p-8 space-y-8 max-w-7xl w-full mx-auto">
+
+          {/* SUPABASE STATUS & SYNCHRONIZER RIBBON */}
+          <div className="no-print bg-white border border-slate-150 rounded-xl p-3 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2.5">
+              <div className={`w-2.5 h-2.5 rounded-full ${
+                !isSupabaseConfigured 
+                  ? "bg-slate-300" 
+                  : supabaseSyncError 
+                  ? "bg-amber-400 animate-pulse" 
+                  : isDbLoading 
+                  ? "bg-yellow-400 animate-spin" 
+                  : "bg-emerald-500 animate-pulse"
+              }`} />
+              <div className="text-slate-700 font-medium">
+                {!isSupabaseConfigured ? (
+                  <span>
+                    <strong>Banco Local (Offline-First)</strong>. Configure as credenciais 
+                    <code className="mx-1 px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-mono text-slate-600 font-bold">VITE_SUPABASE_URL</code> 
+                    no seu <code className="px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-mono text-slate-600 font-bold">.env</code> para ativar a nuvem Supabase.
+                  </span>
+                ) : supabaseSyncError ? (
+                  <span className="text-amber-800">
+                    <strong>Conexão Supabase Suspensa</strong>: {supabaseSyncError} Rodando localmente com segurança.
+                  </span>
+                ) : isDbLoading ? (
+                  <span>Sincronizando tabelas com o banco de dados remoto Supabase...</span>
+                ) : (
+                  <span className="text-slate-800">
+                    <strong>Supabase Conectado</strong>: Seus saldos de AUTEX, faturamentos, e logs da serraria estão salvando na nuvem em tempo real.
+                  </span>
+                )}
+              </div>
+            </div>
+            {isSupabaseConfigured && (
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={loadAllDataFromDb}
+                  disabled={isDbLoading || isSyncingUp}
+                  className="px-3 py-1 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded text-[10px] font-bold text-slate-700 uppercase transition hover:text-slate-900 disabled:opacity-50 cursor-pointer"
+                  title="Recarregar dados do banco remoto"
+                >
+                  {isDbLoading ? "Carregando..." : "Baixar Dados"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleForceDbSync}
+                  disabled={isDbLoading || isSyncingUp}
+                  className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold uppercase transition disabled:opacity-50 cursor-pointer flex items-center gap-1 shadow-sm"
+                  title="Enviar todo o armazenamento do browser para o Supabase"
+                >
+                  {isSyncingUp ? (
+                    <>
+                      <span className="inline-block w-2.5 h-2.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                      <span>Enviando...</span>
+                    </>
+                  ) : (
+                    <span>Sincronizar Manual</span>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+
 
           {/* DYNAMIC COMPONENT: TAB 1 (PAINEL DE SALDOS) */}
           {activeTab === "painel" && (
