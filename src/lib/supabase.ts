@@ -456,3 +456,50 @@ export async function syncAllLocalStorageToSupabase(
     };
   }
 }
+
+/**
+ * Test connections and measure api latency of Supabase Project.
+ */
+export async function checkSupabaseConnection(): Promise<{ success: boolean; message: string; latency?: number }> {
+  if (!supabase) {
+    return { success: false, message: "Supabase não está configurado. Verifique as credenciais no arquivo .env" };
+  }
+  
+  const startTime = performance.now();
+  try {
+    // Ping with a lightweight select on the 'autex' table
+    const { error } = await supabase
+      .from("autex")
+      .select("id")
+      .limit(1);
+      
+    const endTime = performance.now();
+    const duration = Math.round(endTime - startTime);
+
+    if (error) {
+      // If error code indicates table not existing, postgres is alive but migrations are missing
+      if (error.code === "PGRST116" || error.code === "42P01") {
+        return { 
+          success: false, 
+          message: `Conectado ao Supabase, mas tabelas não foram encontradas! Erro: ${error.message} (Código ${error.code}). Por favor, execute as Migrations descritas no arquivo /supabase/README.md para criar os esquemas necessários.`,
+          latency: duration 
+        };
+      }
+      throw error;
+    }
+
+    return {
+      success: true,
+      message: "Conexão com o banco de dados remota do Supabase estabelecida com sucesso!",
+      latency: duration
+    };
+  } catch (err: any) {
+    const endTime = performance.now();
+    const duration = Math.round(endTime - startTime);
+    return {
+      success: false,
+      message: `Falha de conexão com o Supabase: ${err?.message || err?.details || err || "Erro desconhecido"}`,
+      latency: duration
+    };
+  }
+}

@@ -33,7 +33,8 @@ import {
   saveUserAccountInDb,
   syncAllLocalStorageToSupabase,
   deleteDeductionInDb,
-  deleteSawmillLogInDb
+  deleteSawmillLogInDb,
+  checkSupabaseConnection
 } from "./lib/supabase";
 import { 
   FileText, 
@@ -255,6 +256,37 @@ export default function App() {
   const [isDbLoading, setIsDbLoading] = useState(false);
   const [supabaseSyncError, setSupabaseSyncError] = useState<string | null>(null);
   const [isSyncingUp, setIsSyncingUp] = useState(false);
+  const [isTestingDbConnection, setIsTestingDbConnection] = useState(false);
+  const [dbTestResult, setDbTestResult] = useState<{ success: boolean; message: string; latency?: number } | null>(null);
+
+  const handleTestDbConnection = async () => {
+    setIsTestingDbConnection(true);
+    setDbTestResult(null);
+    try {
+      const res = await checkSupabaseConnection();
+      setDbTestResult(res);
+      if (res.success) {
+        handleAddSecurityLog(
+          "TESTE_CONEXAO_OK",
+          `Teste de conexão Supabase bem-sucedido. Latência: ${res.latency}ms.`,
+          "sucesso"
+        );
+      } else {
+        handleAddSecurityLog(
+          "TESTE_CONEXAO_ERRO",
+          `Teste de conexão Supabase falhou: ${res.message}`,
+          "erro"
+        );
+      }
+    } catch (err: any) {
+      setDbTestResult({
+        success: false,
+        message: `Erro específico na verificação assíncrona: ${err?.message || err}`
+      });
+    } finally {
+      setIsTestingDbConnection(false);
+    }
+  };
 
   // Load from Supabase (or fallback instantly to local storage to guarantee ultra-fast, offline-capable boot)
   const loadAllDataFromDb = async () => {
@@ -1602,66 +1634,127 @@ export default function App() {
         <main className="flex-1 p-4 md:p-8 space-y-8 max-w-7xl w-full mx-auto">
 
           {/* SUPABASE STATUS & SYNCHRONIZER RIBBON */}
-          <div className="no-print bg-white border border-slate-150 rounded-xl p-3 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2.5">
-              <div className={`w-2.5 h-2.5 rounded-full ${
-                !isSupabaseConfigured 
-                  ? "bg-slate-300" 
-                  : supabaseSyncError 
-                  ? "bg-amber-400 animate-pulse" 
-                  : isDbLoading 
-                  ? "bg-yellow-400 animate-spin" 
-                  : "bg-emerald-500 animate-pulse"
-              }`} />
-              <div className="text-slate-700 font-medium">
-                {!isSupabaseConfigured ? (
-                  <span>
-                    <strong>Banco Local (Offline-First)</strong>. Configure as credenciais 
-                    <code className="mx-1 px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-mono text-slate-600 font-bold">VITE_SUPABASE_URL</code> 
-                    no seu <code className="px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-mono text-slate-600 font-bold">.env</code> para ativar a nuvem Supabase.
-                  </span>
-                ) : supabaseSyncError ? (
-                  <span className="text-amber-800">
-                    <strong>Conexão Supabase Suspensa</strong>: {supabaseSyncError} Rodando localmente com segurança.
-                  </span>
-                ) : isDbLoading ? (
-                  <span>Sincronizando tabelas com o banco de dados remoto Supabase...</span>
-                ) : (
-                  <span className="text-slate-800">
-                    <strong>Supabase Conectado</strong>: Seus saldos de AUTEX, faturamentos, e logs da serraria estão salvando na nuvem em tempo real.
-                  </span>
+          <div className="no-print bg-white border border-slate-150 rounded-xl p-4 shadow-sm space-y-3">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 text-xs">
+              <div className="flex items-start gap-3">
+                <div className={`mt-0.5 w-2.5 h-2.5 rounded-full shrink-0 ${
+                  isTestingDbConnection 
+                    ? "bg-sky-500 animate-ping" 
+                    : !isSupabaseConfigured 
+                    ? "bg-slate-300" 
+                    : supabaseSyncError 
+                    ? "bg-amber-400 animate-pulse" 
+                    : isDbLoading 
+                    ? "bg-yellow-400 animate-spin" 
+                    : "bg-emerald-500 animate-pulse"
+                }`} />
+                <div className="space-y-1">
+                  <div className="text-slate-700 font-medium leading-relaxed">
+                    {!isSupabaseConfigured ? (
+                      <span>
+                        <strong>Banco Local (Offline-First)</strong>. O sistema está rodando localmente de forma segura. Configure as variáveis 
+                        <code className="mx-1 px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-mono text-slate-600 font-bold">VITE_SUPABASE_URL</code> 
+                        e <code className="mx-1 px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-mono text-slate-600 font-bold">VITE_SUPABASE_ANON_KEY</code> 
+                        no seu arquivo <code className="px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-mono text-slate-600 font-bold">.env</code> para ativar a sincronização em nuvem.
+                      </span>
+                    ) : supabaseSyncError ? (
+                      <span className="text-amber-800">
+                        <strong>Supabase Suspenso</strong>: {supabaseSyncError} Rodando localmente offline-first.
+                      </span>
+                    ) : isDbLoading ? (
+                      <span className="text-slate-600 font-bold">Sincronizando tabelas com o banco de dados remoto Supabase...</span>
+                    ) : (
+                      <span className="text-slate-800 font-semibold flex items-center gap-1.5">
+                        <svg className="w-4 h-4 text-emerald-600 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                        Supabase Conectado: Seus saldos de AUTEX, faturamentos e logs da serraria estão totalmente seguros na nuvem em tempo real.
+                      </span>
+                    )}
+                  </div>
+
+                  {dbTestResult && (
+                    <div className={`text-[10px] p-2 rounded-md ${
+                      dbTestResult.success 
+                        ? "bg-emerald-50 border border-emerald-100 text-emerald-800" 
+                        : "bg-amber-50 border border-amber-100 text-amber-900"
+                    } flex items-center gap-1.5 font-sans font-medium mt-1 w-full max-w-2xl`}>
+                      <span className="font-extrabold uppercase shrink-0 text-[9px] px-1 bg-white/40 rounded">
+                        {dbTestResult.success ? "Conexão Ativa" : "Erro de Conexão"}
+                      </span>
+                      <span>
+                        {dbTestResult.message} 
+                        {dbTestResult.latency !== undefined && (
+                          <strong className="ml-1 font-mono">Latência: {dbTestResult.latency}ms</strong>
+                        )}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 shrink-0 w-full md:w-auto justify-end">
+                <button
+                  type="button"
+                  onClick={handleTestDbConnection}
+                  disabled={isTestingDbConnection}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded text-[10px] font-bold text-slate-700 uppercase transition hover:text-slate-900 disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+                  title="Testar latência e integridade da conexão"
+                >
+                  {isTestingDbConnection ? (
+                    <>
+                      <span className="inline-block w-2.5 h-2.5 border-2 border-slate-450 border-t-slate-700 rounded-full animate-spin"></span>
+                      <span>Testando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" strokeWidth="2.5" />
+                      </svg>
+                      <span>Testar Conexão</span>
+                    </>
+                  )}
+                </button>
+
+                {isSupabaseConfigured && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={loadAllDataFromDb}
+                      disabled={isDbLoading || isSyncingUp}
+                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded text-[10px] font-bold text-slate-700 uppercase transition hover:text-slate-900 disabled:opacity-50 cursor-pointer flex items-center gap-1"
+                      title="Recarregar dados do banco remoto"
+                    >
+                      <svg className="w-3 h-3 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2a9 9 0 11-15.356 2m15.356-2H15" />
+                      </svg>
+                      <span>{isDbLoading ? "Baixando..." : "Baixar Dados"}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleForceDbSync}
+                      disabled={isDbLoading || isSyncingUp}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold uppercase transition disabled:opacity-50 cursor-pointer flex items-center gap-1 shadow-sm"
+                      title="Enviar todo o armazenamento do browser para o Supabase"
+                    >
+                      {isSyncingUp ? (
+                        <>
+                          <span className="inline-block w-2.5 h-2.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                          <span>Enviando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1M12 4v12m0 0l-4-4m4 4l4-4" />
+                          </svg>
+                          <span>Sincronizar Manual</span>
+                        </>
+                      )}
+                    </button>
+                  </>
                 )}
               </div>
             </div>
-            {isSupabaseConfigured && (
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={loadAllDataFromDb}
-                  disabled={isDbLoading || isSyncingUp}
-                  className="px-3 py-1 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded text-[10px] font-bold text-slate-700 uppercase transition hover:text-slate-900 disabled:opacity-50 cursor-pointer"
-                  title="Recarregar dados do banco remoto"
-                >
-                  {isDbLoading ? "Carregando..." : "Baixar Dados"}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleForceDbSync}
-                  disabled={isDbLoading || isSyncingUp}
-                  className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold uppercase transition disabled:opacity-50 cursor-pointer flex items-center gap-1 shadow-sm"
-                  title="Enviar todo o armazenamento do browser para o Supabase"
-                >
-                  {isSyncingUp ? (
-                    <>
-                      <span className="inline-block w-2.5 h-2.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                      <span>Enviando...</span>
-                    </>
-                  ) : (
-                    <span>Sincronizar Manual</span>
-                  )}
-                </button>
-              </div>
-            )}
           </div>
 
 
