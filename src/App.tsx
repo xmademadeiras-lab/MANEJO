@@ -70,7 +70,9 @@ import {
   BarChart2,
   Database,
   Shield,
-  Download
+  Download,
+  Edit2,
+  Check
 } from "lucide-react";
 
 export default function App() {
@@ -95,6 +97,8 @@ export default function App() {
   const [dashboardSearch, setDashboardSearch] = useState("");
   const [dashboardOwnerSearch, setDashboardOwnerSearch] = useState("");
   const [expandedNfeList, setExpandedNfeList] = useState<string[]>([]);
+  const [editingNfePlate, setEditingNfePlate] = useState<string | null>(null);
+  const [tempTruckPlate, setTempTruckPlate] = useState("");
 
   const [currentUser, setCurrentUser] = useState(() => localStorage.getItem("etw_current_user") || "COSTA");
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
@@ -930,6 +934,24 @@ export default function App() {
       const updated = deductions.filter(d => d.id !== id);
       saveDeductions(updated);
     }
+  };
+
+  // Corrigir a placa do caminhão de uma NF-e já lançada
+  const handleUpdateNfeTruckPlate = async (nfeNumber: string, newPlate: string) => {
+    const formattedPlate = newPlate.toUpperCase().trim();
+    const updated = deductions.map(d => {
+      if (d.autexId === activeAutex?.id && d.numeroNfe === nfeNumber) {
+        return { ...d, placaCaminhao: formattedPlate || "Não Informado" };
+      }
+      return d;
+    });
+    
+    await saveDeductions(updated);
+    handleAddSecurityLog(
+      "CORRECAO_PLACA",
+      `Corrigiu a placa do veículo/caminhão da NF-e nº ${nfeNumber} para "${formattedPlate || "Sem Placa Specified"}"`,
+      "sucesso"
+    );
   };
 
   // --- XML file upload handling ---
@@ -2095,11 +2117,65 @@ export default function App() {
                                       </span>
                                     )}
                                   </td>
-                                  <td className="px-6 py-4 font-mono font-bold text-slate-700">
-                                    <div className="flex items-center gap-1.5">
-                                      <Truck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                      <span>{group.placaCaminhao}</span>
-                                    </div>
+                                  <td className="px-6 py-4 font-mono font-bold text-slate-700" onClick={(e) => e.stopPropagation()}>
+                                    {editingNfePlate === group.numeroNfe ? (
+                                      <div className="flex items-center gap-1">
+                                        <input
+                                          type="text"
+                                          value={tempTruckPlate}
+                                          onChange={(e) => setTempTruckPlate(e.target.value)}
+                                          className="w-24 px-1.5 py-1 bg-white border border-slate-300 rounded text-xs uppercase font-mono font-bold focus:outline-hidden focus:border-emerald-500"
+                                          placeholder="PLACA"
+                                          autoFocus
+                                          onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                              handleUpdateNfeTruckPlate(group.numeroNfe, tempTruckPlate);
+                                              setEditingNfePlate(null);
+                                            } else if (e.key === "Escape") {
+                                              setEditingNfePlate(null);
+                                            }
+                                          }}
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            handleUpdateNfeTruckPlate(group.numeroNfe, tempTruckPlate);
+                                            setEditingNfePlate(null);
+                                          }}
+                                          className="p-1 text-emerald-650 hover:text-emerald-800 hover:bg-emerald-50 rounded transition cursor-pointer"
+                                          title="Salvar"
+                                        >
+                                          <Check className="w-3.5 h-3.5" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setEditingNfePlate(null)}
+                                          className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition cursor-pointer"
+                                          title="Cancelar"
+                                        >
+                                          <X className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-1.5 group/plate">
+                                        <Truck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                        <span className="truncate max-w-[120px]" title={group.placaCaminhao}>
+                                          {group.placaCaminhao}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setEditingNfePlate(group.numeroNfe);
+                                            setTempTruckPlate(group.placaCaminhao === "Não Informado" ? "" : group.placaCaminhao);
+                                          }}
+                                          className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-700 opacity-0 group-hover/plate:opacity-100 focus:opacity-100 transition duration-150 cursor-pointer"
+                                          title="Corrigir Placa"
+                                        >
+                                          <Edit2 className="w-3 h-3" />
+                                        </button>
+                                      </div>
+                                    )}
                                   </td>
                                   <td className="px-6 py-4">
                                     <span className="font-semibold text-slate-850 block">
