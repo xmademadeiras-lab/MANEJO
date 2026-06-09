@@ -102,7 +102,7 @@ export default function App() {
 
   const [currentUser, setCurrentUser] = useState(() => localStorage.getItem("etw_current_user") || "COSTA");
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return localStorage.getItem("etw_is_authenticated") === "true";
+    return sessionStorage.getItem("etw_is_authenticated") === "true";
   });
 
   const [securityLogs, setSecurityLogs] = useState<SecurityLog[]>(() => {
@@ -134,12 +134,12 @@ export default function App() {
   const handleLoginSuccess = (username: string) => {
     setCurrentUser(username);
     localStorage.setItem("etw_current_user", username);
-    localStorage.setItem("etw_is_authenticated", "true");
+    sessionStorage.setItem("etw_is_authenticated", "true");
     setIsAuthenticated(true);
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("etw_is_authenticated");
+    sessionStorage.removeItem("etw_is_authenticated");
     setIsAuthenticated(false);
     handleAddSecurityLog("LOGOUT", "Sessão encerrada voluntariamente pelo operador", "sucesso");
   };

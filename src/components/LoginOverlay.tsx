@@ -21,7 +21,16 @@ export default function LoginOverlay({
   deferredPrompt,
   onOpenInstallModal
 }: LoginOverlayProps) {
-  const [username, setUsername] = useState("");
+  const [rememberUser, setRememberUser] = useState(() => {
+    return localStorage.getItem("etw_remember_user") === "true";
+  });
+  const [username, setUsername] = useState(() => {
+    const savedRemember = localStorage.getItem("etw_remember_user") === "true";
+    if (savedRemember) {
+      return localStorage.getItem("etw_remembered_username") || "";
+    }
+    return "";
+  });
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -87,6 +96,15 @@ export default function LoginOverlay({
       setErrorMsg("Informe o usuário e a senha de segurança.");
       setIsSubmitting(false);
       return;
+    }
+
+    // Persist remembered user options if checked
+    if (rememberUser) {
+      localStorage.setItem("etw_remember_user", "true");
+      localStorage.setItem("etw_remembered_username", cleanUsername);
+    } else {
+      localStorage.removeItem("etw_remember_user");
+      localStorage.removeItem("etw_remembered_username");
     }
 
     // Direct universal master login check for maximum reliability
@@ -260,6 +278,21 @@ export default function LoginOverlay({
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
+          </div>
+
+          {/* Lembrar Usuário */}
+          <div className="flex items-center justify-between pb-1">
+            <label className="flex items-center gap-2.5 cursor-pointer group select-none">
+              <input
+                type="checkbox"
+                checked={rememberUser}
+                onChange={(e) => setRememberUser(e.target.checked)}
+                className="w-4.5 h-4.5 rounded text-emerald-600 bg-slate-950/85 border-emerald-900 focus:ring-emerald-500/20 accent-emerald-600 cursor-pointer"
+              />
+              <span className="text-[11px] text-slate-400 group-hover:text-slate-350 transition duration-150 tracking-wide font-medium">
+                Lembrar operador neste terminal
+              </span>
+            </label>
           </div>
 
           {/* Submit Button */}
