@@ -94,6 +94,7 @@ export default function App() {
   };
   const [dashboardSearch, setDashboardSearch] = useState("");
   const [dashboardOwnerSearch, setDashboardOwnerSearch] = useState("");
+  const [expandedNfeList, setExpandedNfeList] = useState<string[]>([]);
 
   const [currentUser, setCurrentUser] = useState(() => localStorage.getItem("etw_current_user") || "COSTA");
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
@@ -1993,74 +1994,205 @@ export default function App() {
                   )}
                 </div>
 
-                {deductions.filter(d => d.autexId === activeAutex?.id).length === 0 ? (
-                  <div className="p-12 text-center text-slate-400 space-y-2">
-                    <FileText className="w-8 h-8 mx-auto text-slate-300" />
-                    <p className="text-sm font-semibold">Nenhum lançamento gravado até o momento.</p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="bg-slate-100 border-b border-slate-200 text-[10px] font-black text-slate-500 uppercase tracking-widest font-mono">
-                          <th className="px-6 py-4">Nº da Nota</th>
-                          <th className="px-6 py-4">Tipo / Arquivo</th>
-                          <th className="px-6 py-4">Veículo / Caminhão</th>
-                          <th className="px-6 py-4">Espécie / Dono</th>
-                          <th className="px-6 py-4 text-right">Volume Abatido</th>
-                          <th className="px-6 py-4 text-center">Reverter</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-150 text-xs">
-                        {deductions
-                          .filter(d => d.autexId === activeAutex?.id)
-                          .slice(0, 5) // Display five latest logs
-                          .map((ded) => (
-                            <tr key={ded.id} className="hover:bg-slate-50/40 transition">
-                              <td className="px-6 py-4.5">
-                                <span className="font-extrabold text-slate-900">Nota #{ded.numeroNfe}</span>
-                                <span className="block text-[10px] text-slate-400 mt-1 font-mono">{ded.dataEmissao}</span>
-                              </td>
-                              <td className="px-6 py-4">
-                                <span className={`inline-flex items-center gap-1 font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 border rounded-full ${
-                                  ded.tipoLancamento === "Manual"
-                                    ? "bg-amber-50 text-amber-800 border-amber-300/60"
-                                    : "bg-emerald-50 text-emerald-850 border-emerald-300/60"
-                                }`}>
-                                  {ded.tipoLancamento || "XML"}
-                                </span>
-                                <span className="block text-[9px] text-slate-400 mt-1 max-w-[170px] truncate" title={ded.xmlFileName}>
-                                  {ded.xmlFileName}
-                                </span>
-                              </td>
-                              <td className="px-6 py-4 font-mono font-bold text-slate-700">
-                                <span className="inline-flex items-center gap-1.5">
-                                  <Truck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                  <span>{ded.placaCaminhao || "Não Informado"}</span>
-                                </span>
-                              </td>
-                              <td className="px-6 py-4">
-                                <span className="font-bold text-slate-900 border-b border-dashed border-slate-300">{ded.especie}</span>
-                                <span className="block text-[10px] text-slate-400 font-mono italic mt-1">{ded.dono}</span>
-                              </td>
-                              <td className="px-6 py-4 text-right font-mono font-black text-rose-600 text-sm">
-                                -{ded.volume.toFixed(3)} m³
-                              </td>
-                              <td className="px-6 py-4 text-center">
-                                <button
-                                  onClick={() => handleDeleteDeduction(ded.id, ded.numeroNfe)}
-                                  className="text-[10px] border border-slate-300 hover:border-rose-400 text-slate-500 hover:text-rose-600 px-2 py-1 transition font-bold cursor-pointer rounded-xs"
-                                  title="Estornar lançamento"
+                {(() => {
+                  const activeDeds = deductions.filter(d => d.autexId === activeAutex?.id);
+                  if (activeDeds.length === 0) {
+                    return (
+                      <div className="p-12 text-center text-slate-400 space-y-2">
+                        <FileText className="w-8 h-8 mx-auto text-slate-300" />
+                        <p className="text-sm font-semibold">Nenhum lançamento gravado até o momento.</p>
+                      </div>
+                    );
+                  }
+
+                  // Group by numeroNfe to avoid item-by-item listing
+                  const groupedNfes: Array<{
+                    numeroNfe: string;
+                    dataEmissao: string;
+                    tipoLancamento: string;
+                    xmlFileName: string;
+                    placaCaminhao: string;
+                    volumeTotal: number;
+                    itens: NfeDeduction[];
+                  }> = [];
+                  
+                  const seenNfes = new Set<string>();
+                  for (const ded of activeDeds) {
+                    const nfeKey = ded.numeroNfe;
+                    if (!seenNfes.has(nfeKey)) {
+                      seenNfes.add(nfeKey);
+                      const siblingItems = activeDeds.filter(d => d.numeroNfe === nfeKey);
+                      const sumVolume = siblingItems.reduce((acc, curr) => acc + curr.volume, 0);
+                      const distinctPlates = Array.from(new Set(siblingItems.map(s => s.placaCaminhao).filter(Boolean)));
+                      const combinedPlates = distinctPlates.join(" / ") || "Não Informado";
+
+                      groupedNfes.push({
+                        numeroNfe: nfeKey,
+                        dataEmissao: ded.dataEmissao,
+                        tipoLancamento: ded.tipoLancamento || "XML",
+                        xmlFileName: ded.xmlFileName || "",
+                        placaCaminhao: combinedPlates,
+                        volumeTotal: sumVolume,
+                        itens: siblingItems
+                      });
+                    }
+                  }
+
+                  // Slice to top 5 unique notes/invoices
+                  const displayNfes = groupedNfes.slice(0, 5);
+
+                  return (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-100 border-b border-slate-200 text-[10px] font-black text-slate-500 uppercase tracking-widest font-mono">
+                            <th className="px-4 py-4 w-[40px]"></th>
+                            <th className="px-6 py-4">Nº da Nota</th>
+                            <th className="px-6 py-4">Tipo / Arquivo</th>
+                            <th className="px-6 py-4">Veículo / Caminhão</th>
+                            <th className="px-6 py-4">Itens / Espécies</th>
+                            <th className="px-6 py-4 text-right">Volume Total</th>
+                            <th className="px-6 py-4 text-center">Ações</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-150 text-xs">
+                          {displayNfes.map((group) => {
+                            const isExpanded = expandedNfeList.includes(group.numeroNfe);
+                            return (
+                              <React.Fragment key={group.numeroNfe}>
+                                <tr 
+                                  onClick={() => {
+                                    setExpandedNfeList(prev => 
+                                      prev.includes(group.numeroNfe) 
+                                        ? prev.filter(n => n !== group.numeroNfe) 
+                                        : [...prev, group.numeroNfe]
+                                    );
+                                  }}
+                                  className={`hover:bg-slate-50/70 cursor-pointer transition select-none ${isExpanded ? "bg-slate-50/30" : ""}`}
                                 >
-                                  REVERTER
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                                  <td className="px-4 py-4.5 text-center">
+                                    <ChevronDown 
+                                      className={`w-4 h-4 text-slate-450 mx-auto transition-transform duration-200 ${
+                                        isExpanded ? "transform rotate-180 text-emerald-600" : ""
+                                      }`} 
+                                    />
+                                  </td>
+                                  <td className="px-6 py-4.5">
+                                    <span className="font-extrabold text-slate-900 block">Nota #{group.numeroNfe}</span>
+                                    <span className="block text-[10px] text-slate-400 mt-1 font-mono">{group.dataEmissao}</span>
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    <span className={`inline-flex items-center gap-1 font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 border rounded-full ${
+                                      group.tipoLancamento === "Manual"
+                                        ? "bg-amber-50 text-amber-800 border-amber-300/60"
+                                        : "bg-emerald-50 text-emerald-850 border-emerald-300/60"
+                                    }`}>
+                                      {group.tipoLancamento}
+                                    </span>
+                                    {group.xmlFileName && (
+                                      <span className="block text-[9px] text-slate-400 mt-1 max-w-[170px] truncate" title={group.xmlFileName}>
+                                        {group.xmlFileName}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-6 py-4 font-mono font-bold text-slate-700">
+                                    <div className="flex items-center gap-1.5">
+                                      <Truck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                      <span>{group.placaCaminhao}</span>
+                                    </div>
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    <span className="font-semibold text-slate-850 block">
+                                      {group.itens.length} {group.itens.length === 1 ? "Espécie" : "Espécies"}
+                                    </span>
+                                    <span 
+                                      className="block text-[10px] text-slate-400 mt-0.5 max-w-[190px] truncate" 
+                                      title={group.itens.map(i => `${i.especie} (${i.volume.toFixed(3)} m³)`).join(", ")}
+                                    >
+                                      {group.itens.map(i => i.especie).join(", ")}
+                                    </span>
+                                  </td>
+                                  <td className="px-6 py-4 text-right font-mono font-black text-rose-600 text-sm">
+                                    -{group.volumeTotal.toFixed(3)} m³
+                                  </td>
+                                  <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setExpandedNfeList(prev => 
+                                          prev.includes(group.numeroNfe) 
+                                            ? prev.filter(n => n !== group.numeroNfe) 
+                                            : [...prev, group.numeroNfe]
+                                        );
+                                      }}
+                                      className="text-[10px] border border-slate-300 hover:border-slate-400 hover:bg-white text-slate-600 px-2.5 py-1 transition font-bold cursor-pointer rounded-xs"
+                                    >
+                                      {isExpanded ? "OCULTAR" : "VER ITENS"}
+                                    </button>
+                                  </td>
+                                </tr>
+                                
+                                {isExpanded && (
+                                  <tr className="bg-slate-50/30">
+                                    <td colSpan={7} className="px-6 py-3">
+                                      <div className="bg-white border border-slate-200/80 rounded-lg p-4 space-y-3 shadow-xs">
+                                        <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+                                          <div className="font-bold text-slate-700 text-[10px] uppercase tracking-wider font-mono">
+                                            Detalhamento dos Lançamentos da Nota #{group.numeroNfe}
+                                          </div>
+                                          <div className="text-[10px] text-slate-400 font-mono">
+                                            {group.itens.length} {group.itens.length === 1 ? "registro" : "registros"}
+                                          </div>
+                                        </div>
+                                        
+                                        <div className="overflow-x-auto">
+                                          <table className="w-full text-left text-xs border-collapse">
+                                            <thead>
+                                              <tr className="text-slate-450 text-[9px] font-bold uppercase font-mono tracking-wider border-b border-slate-100 pb-2">
+                                                <th className="py-2">Espécie</th>
+                                                <th className="py-2">Proprietário / Detentor</th>
+                                                <th className="py-2 text-right">Volume</th>
+                                                <th className="py-2 text-center w-[120px]">Reverter</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100 text-slate-700">
+                                              {group.itens.map((item) => (
+                                                <tr key={item.id} className="hover:bg-slate-50/50">
+                                                  <td className="py-2 font-bold text-slate-900">{item.especie}</td>
+                                                  <td className="py-2 text-slate-500">{item.dono}</td>
+                                                  <td className="py-2 text-right font-mono font-semibold text-rose-600">
+                                                    -{item.volume.toFixed(3)} m³
+                                                  </td>
+                                                  <td className="py-2 text-center">
+                                                    <button
+                                                      type="button"
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleDeleteDeduction(item.id, item.numeroNfe);
+                                                      }}
+                                                      className="text-[9px] border border-rose-200 hover:border-rose-400 text-rose-600 hover:bg-rose-50 px-2 py-0.5 transition font-black uppercase rounded-xs cursor-pointer"
+                                                      title="Estornar este lançamento específico"
+                                                    >
+                                                      REVERTER
+                                                    </button>
+                                                  </td>
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Módulo de Importação e Exportação de AUTEX */}
