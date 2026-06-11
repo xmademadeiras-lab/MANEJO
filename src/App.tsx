@@ -72,7 +72,9 @@ import {
   Shield,
   Download,
   Edit2,
-  Check
+  Check,
+  Undo2,
+  Redo2
 } from "lucide-react";
 
 export default function App() {
@@ -104,6 +106,21 @@ export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return sessionStorage.getItem("etw_is_authenticated") === "true";
   });
+
+  // --- Undo / Redo History States & Refs ---
+  interface HistorySnapshot {
+    autexList: Autex[];
+    deductions: NfeDeduction[];
+    sawmillLogs: SawmillProcessLog[];
+    actionName: string;
+    timestamp: string;
+  }
+
+  const [undoStack, setUndoStack] = useState<HistorySnapshot[]>([]);
+  const [redoStack, setRedoStack] = useState<HistorySnapshot[]>([]);
+  const isHistoryOperationRef = useRef(false);
+  const prevSnapshotRef = useRef<HistorySnapshot | null>(null);
+  const historyTimerRef = useRef<any>(null);
 
   const [securityLogs, setSecurityLogs] = useState<SecurityLog[]>(() => {
     const saved = localStorage.getItem("etw_security_logs");
@@ -426,8 +443,133 @@ export default function App() {
     }
   };
 
-  // --- Save states to LocalStorage and stream sync to Cloud ---
-  const saveAutexList = async (list: Autex[]) => {
+  // --- Save states to LocalStorage and stream sync to Cloud (with Undo/Redo support) ---
+  const captureUndoSnapshot = (actionName: string) => {
+    if (isHistoryOperationRef.current) return;
+
+    if (!prevSnapshotRef.current) {
+      prevSnapshotRef.current = {
+        autexList: JSON.parse(JSON.stringify(autexList)),
+        deductions: JSON.parse(JSON.stringify(deductions)),
+        sawmillLogs: JSON.parse(JSON.stringify(sawmillLogs)),
+        actionName,
+        timestamp: new Date().toLocaleTimeString("pt-BR")
+      };
+    }
+
+    if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
+    historyTimerRef.current = setTimeout(() => {
+      if (prevSnapshotRef.current) {
+        const snap = prevSnapshotRef.current;
+        setUndoStack(prev => {
+          const last = prev[prev.length - 1];
+          if (last && 
+              JSON.stringify(last.autexList) === JSON.stringify(snap.autexList) &&
+              JSON.stringify(last.deductions) === JSON.stringify(snap.deductions) &&
+              JSON.stringify(last.sawmillLogs) === JSON.stringify(snap.sawmillLogs)) {
+            return prev;
+          }
+          return [...prev, snap].slice(-30);
+        });
+        setRedoStack([]); // Clear Redo stack on new action
+        prevSnapshotRef.current = null;
+      }
+    }, 50);
+  };
+
+  const handleUndo = async () => {
+    if (undoStack.length === 0) return;
+
+    isHistoryOperationRef.current = true;
+
+    const nextUndoStack = [...undoStack];
+    const snapToRestore = nextUndoStack.pop()!;
+
+    // Create a redo snapshot with CURRENT states
+    const currentSnap: HistorySnapshot = {
+      autexList: JSON.parse(JSON.stringify(autexList)),
+      deductions: JSON.parse(JSON.stringify(deductions)),
+      sawmillLogs: JSON.parse(JSON.stringify(sawmillLogs)),
+      actionName: snapToRestore.actionName,
+      timestamp: new Date().toLocaleTimeString("pt-BR")
+    };
+
+    setRedoStack(prev => [...prev, currentSnap].slice(-30));
+    setUndoStack(nextUndoStack);
+
+    // Apply states
+    await saveAutexList(snapToRestore.autexList, snapToRestore.actionName);
+    await saveDeductions(snapToRestore.deductions, snapToRestore.actionName);
+    await saveSawmillLogs(snapToRestore.sawmillLogs, snapToRestore.actionName);
+
+    handleAddSecurityLog(
+      "ACAO_DESFEITA",
+      `Desfez ação: "${snapToRestore.actionName}"`,
+      "sucesso"
+    );
+
+    isHistoryOperationRef.current = false;
+  };
+
+  const handleRedo = async () => {
+    if (redoStack.length === 0) return;
+
+    isHistoryOperationRef.current = true;
+
+    const nextRedoStack = [...redoStack];
+    const snapToRestore = nextRedoStack.pop()!;
+
+    // Create an undo snapshot with CURRENT states
+    const currentSnap: HistorySnapshot = {
+      autexList: JSON.parse(JSON.stringify(autexList)),
+      deductions: JSON.parse(JSON.stringify(deductions)),
+      sawmillLogs: JSON.parse(JSON.stringify(sawmillLogs)),
+      actionName: snapToRestore.actionName,
+      timestamp: new Date().toLocaleTimeString("pt-BR")
+    };
+
+    setUndoStack(prev => [...prev, currentSnap].slice(-30));
+    setRedoStack(nextRedoStack);
+
+    // Apply states
+    await saveAutexList(snapToRestore.autexList, snapToRestore.actionName);
+    await saveDeductions(snapToRestore.deductions, snapToRestore.actionName);
+    await saveSawmillLogs(snapToRestore.sawmillLogs, snapToRestore.actionName);
+
+    handleAddSecurityLog(
+      "ACAO_REFEITA",
+      `Refez ação: "${snapToRestore.actionName}"`,
+      "sucesso"
+    );
+
+    isHistoryOperationRef.current = false;
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        handleUndo();
+      } else if (
+        ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") ||
+        ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "z")
+      ) {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [undoStack, redoStack, autexList, deductions, sawmillLogs]);
+
+  const saveAutexList = async (list: Autex[], description = "Alteração de Contrato AUTEX") => {
+    captureUndoSnapshot(description);
     const previous = autexList;
     setAutexList(list);
     localStorage.setItem("manejo_autex_list", JSON.stringify(list));
@@ -449,7 +591,8 @@ export default function App() {
     }
   };
 
-  const saveDeductions = async (list: NfeDeduction[]) => {
+  const saveDeductions = async (list: NfeDeduction[], description = "Alteração de Lançamento/Nota") => {
+    captureUndoSnapshot(description);
     const previous = deductions;
     setDeductions(list);
     localStorage.setItem("manejo_deductions_list", JSON.stringify(list));
@@ -469,7 +612,8 @@ export default function App() {
     }
   };
 
-  const saveSawmillLogs = async (list: SawmillProcessLog[]) => {
+  const saveSawmillLogs = async (list: SawmillProcessLog[], description = "Registro de Serraria") => {
+    captureUndoSnapshot(description);
     const previous = sawmillLogs;
     setSawmillLogs(list);
     localStorage.setItem("sawmill_logs_list", JSON.stringify(list));
@@ -1745,7 +1889,7 @@ export default function App() {
                       type="button"
                       onClick={loadAllDataFromDb}
                       disabled={isDbLoading || isSyncingUp}
-                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded text-[10px] font-bold text-slate-700 uppercase transition hover:text-slate-900 disabled:opacity-50 cursor-pointer flex items-center gap-1"
+                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded text-[10px] font-bold text-slate-705 uppercase transition hover:text-slate-900 disabled:opacity-50 cursor-pointer flex items-center gap-1"
                       title="Recarregar dados do banco remoto"
                     >
                       <svg className="w-3 h-3 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
@@ -1776,6 +1920,39 @@ export default function App() {
                     </button>
                   </>
                 )}
+
+                {/* Painel Histórico Undo/Redo */}
+                <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 p-0.5 rounded-lg ml-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleUndo}
+                    disabled={undoStack.length === 0}
+                    className="px-2.5 py-1.5 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-slate-700 hover:text-slate-900 border border-slate-200 rounded text-[10px] font-extrabold uppercase transition disabled:cursor-not-allowed cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                    title={
+                      undoStack.length > 0 
+                        ? `Desfazer última alteração: "${undoStack[undoStack.length - 1].actionName}" (Ctrl+Z)` 
+                        : "Não há ações para desfazer"
+                    }
+                  >
+                    <Undo2 className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                    <span>Desfazer ({undoStack.length})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleRedo}
+                    disabled={redoStack.length === 0}
+                    className="px-2.5 py-1.5 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-slate-700 hover:text-slate-900 border border-slate-200 rounded text-[10px] font-extrabold uppercase transition disabled:cursor-not-allowed cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                    title={
+                      redoStack.length > 0 
+                        ? `Refazer alteração desfeita: "${redoStack[redoStack.length - 1].actionName}" (Ctrl+Y)` 
+                        : "Não há ações para refazer"
+                    }
+                  >
+                    <Redo2 className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                    <span>Refazer ({redoStack.length})</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>

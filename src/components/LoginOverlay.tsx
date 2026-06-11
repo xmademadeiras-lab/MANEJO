@@ -244,7 +244,7 @@ export default function LoginOverlay({
                 type="text"
                 required
                 disabled={isSubmitting}
-                placeholder="Ex: COSTA"
+                placeholder="Ex: USUÁRIO"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="w-full pl-11 pr-4 py-3 bg-slate-950/60 border border-emerald-900/40 rounded-xl text-sm font-semibold tracking-wide text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition"
