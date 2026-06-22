@@ -68,6 +68,11 @@ const scientificNamesMap: Record<string, string> = {
   "ipe": "Handroanthus albus",
   "cedro": "Cedrela odorata",
   "angelim": "Hymenolobium petraeum",
+  "angelim-pedra": "Hymenolobium petraeum",
+  "cumaru": "Dipteryx odorata",
+  "freijo": "Cordia goeldiana",
+  "itauba": "Mezilaurus itauba",
+  "massaranduba": "Manilkara huberi",
   "maracatiara": "Astronium lecointei",
   "tauari": "Couratari guianensis",
   "tatajuba": "Bagassa guianensis"
@@ -76,7 +81,35 @@ const scientificNamesMap: Record<string, string> = {
 function getScientificName(popular: string): string {
   if (!popular) return "—";
   const norm = popular.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  return scientificNamesMap[norm] || "—";
+  
+  if (scientificNamesMap[norm]) {
+    return scientificNamesMap[norm];
+  }
+
+  // Fallback fuzzy/substring matching to match complex or composite names in active Autex / NF-e
+  if (norm.includes("ipe")) return "Handroanthus albus";
+  if (norm.includes("jatoba")) return "Hymenaea courbaril";
+  if (norm.includes("cedro")) return "Cedrela odorata";
+  if (norm.includes("angelim")) return "Hymenolobium petraeum";
+  if (norm.includes("cumaru")) return "Dipteryx odorata";
+  if (norm.includes("roxinho")) return "Peltogyne paniculata";
+  if (norm.includes("freijo")) return "Cordia goeldiana";
+  if (norm.includes("itauba")) return "Mezilaurus itauba";
+  if (norm.includes("maracatiara")) return "Astronium lecointei";
+  if (norm.includes("tauari")) return "Couratari guianensis";
+  if (norm.includes("massaranduba")) return "Manilkara huberi";
+  if (norm.includes("sucupira")) return "Bowdichia nitida";
+  if (norm.includes("libra")) return "Erisma uncinatum";
+  if (norm.includes("copaiba")) return "Copaifera multijuga";
+  if (norm.includes("peroba")) return "Aspidosperma ellipsocarpum";
+  if (norm.includes("breu")) return "Protium robustum";
+  if (norm.includes("cambara")) return "Qualea paraensis";
+  if (norm.includes("jequitiba")) return "Allantoma lineata";
+  if (norm.includes("orelha")) return "Enterolobium schomburgkii";
+  if (norm.includes("pequi")) return "Caryocar villosum";
+  if (norm.includes("tatajuba")) return "Bagassa guianensis";
+
+  return "—";
 }
 
 interface SerrariaModuleProps {
