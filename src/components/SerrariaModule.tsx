@@ -19,8 +19,39 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Search,
-  Scale
+  Scale,
+  FileSpreadsheet,
+  Upload,
+  Download,
+  RefreshCw,
+  X,
+  Edit2,
+  Check,
+  FileText
 } from "lucide-react";
+
+interface ImportedSerrariaSaldo {
+  id: string;
+  produto: string;
+  cientifico: string;
+  popular: string;
+  saldo: number;
+}
+
+const defaultExampleSaldos: ImportedSerrariaSaldo[] = [
+  { id: "ex-1", produto: "Madeira beneficiada", cientifico: "Erisma uncinatum", popular: "Libra", saldo: 0.6073 },
+  { id: "ex-2", produto: "Madeira serrada", cientifico: "Hymenaea courbaril", popular: "Jatobá", saldo: 2.994 },
+  { id: "ex-3", produto: "Madeira serrada", cientifico: "Peltogyne paniculata", popular: "Roxinho", saldo: 2.4624 },
+  { id: "ex-4", produto: "Madeira serrada", cientifico: "Copaifera multijuga", popular: "Copaíba", saldo: 0.2735 },
+  { id: "ex-5", produto: "Madeira serrada", cientifico: "Aspidosperma ellipsocarpum", popular: "Peroba-rosa", saldo: 28.409 },
+  { id: "ex-6", produto: "Madeira serrada", cientifico: "Protium robustum", popular: "Breu", saldo: 10.987 },
+  { id: "ex-7", produto: "Madeira serrada", cientifico: "Qualea paraensis", popular: "Cambará", saldo: 32.2012 },
+  { id: "ex-8", produto: "Madeira serrada", cientifico: "Erisma uncinatum", popular: "Libra", saldo: 20.0287 },
+  { id: "ex-9", produto: "TORA", cientifico: "Allantoma lineata", popular: "Jequitibá", saldo: 68.385 },
+  { id: "ex-10", produto: "TORA", cientifico: "Enterolobium schomburgkii", popular: "Orelha-de-macaco", saldo: 4.9813 },
+  { id: "ex-11", produto: "TORA", cientifico: "Bowdichia nitida", popular: "Sucupira", saldo: 7.487 },
+  { id: "ex-12", produto: "TORA", cientifico: "Caryocar villosum", popular: "Pequi", saldo: 6.1619 }
+];
 
 interface SerrariaModuleProps {
   deductions: NfeDeduction[];
@@ -38,6 +69,38 @@ export default function SerrariaModule({
   const [ownerFilter, setOwnerFilter] = useState("");
   const [productFilter, setProductFilter] = useState("");
 
+  // Sub tab navigation inside SerrariaModule
+  const [serrariaSubTab, setSerrariaSubTab] = useState<"producao" | "saldos">("producao");
+
+  // State for imported general balance report
+  const [importedSaldos, setImportedSaldos] = useState<ImportedSerrariaSaldo[]>(() => {
+    const saved = localStorage.getItem("serraria_imported_saldos");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error("Erro ao ler saldos salvos em serraria:", e);
+      }
+    }
+    return defaultExampleSaldos;
+  });
+
+  // State for adding manual items
+  const [newProdName, setNewProdName] = useState("Madeira serrada");
+  const [newCientifico, setNewCientifico] = useState("");
+  const [newPopular, setNewPopular] = useState("");
+  const [newSaldoVal, setNewSaldoVal] = useState("");
+
+  // Search filter for imported balances
+  const [saldosFilter, setSaldosFilter] = useState("");
+
+  // Edit states
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editProduto, setEditProduto] = useState("");
+  const [editCientifico, setEditCientifico] = useState("");
+  const [editPopular, setEditPopular] = useState("");
+  const [editSaldo, setEditSaldo] = useState("");
+
   // Form states for manual process registration (desdobro)
   const [serrariaEspecie, setSerrariaEspecie] = useState("");
   const [serrariaDono, setSerrariaDono] = useState("");
@@ -45,6 +108,256 @@ export default function SerrariaModule({
   const [serrariaVolSerrado, setSerrariaVolSerrado] = useState("");
   const [serrariaProduto, setSerrariaProduto] = useState("Serrado");
   const [serrariaDate, setSerrariaDate] = useState(() => new Date().toISOString().split("T")[0]);
+
+  // Helper to find index without accentuation & capitalization
+  const findHeaderIdx = (headers: string[], options: string[]): number => {
+    return headers.findIndex(h => 
+      options.some(opt => {
+        const cleanH = h.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const cleanOpt = opt.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        return cleanH === cleanOpt;
+      })
+    );
+  };
+
+  const handleImportSaldosCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        if (!text) {
+          alert("O arquivo está vazio.");
+          return;
+        }
+
+        // Auto detect delimiter
+        const commaCount = (text.match(/,/g) || []).length;
+        const semicolonCount = (text.match(/;/g) || []).length;
+        const delimiter = semicolonCount > commaCount ? ';' : ',';
+
+        const lines = text.split(/\r?\n/).map(line => {
+          const cells: string[] = [];
+          let inQuotes = false;
+          let currentCell = "";
+          for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"') {
+              inQuotes = !inQuotes;
+            } else if (char === delimiter && !inQuotes) {
+              cells.push(currentCell.trim());
+              currentCell = "";
+            } else {
+              currentCell += char;
+            }
+          }
+          cells.push(currentCell.trim());
+          return cells;
+        }).filter(row => row.length > 0 && row.some(cell => cell !== ""));
+
+        if (lines.length < 2) {
+          alert("Erro: O arquivo importado deve conter ao menos um cabeçalho e uma linha de dados.");
+          return;
+        }
+
+        const headers = lines[0].map(h => h.replace(/^["']|["']$/g, "").trim());
+
+        const prodIdx = findHeaderIdx(headers, ["produto", "product", "tipo", "categoria", "madeira", "artigo"]);
+        const cientIdx = findHeaderIdx(headers, ["cientifico", "scientific", "nome cientifico", "cientifica"]);
+        const popIdx = findHeaderIdx(headers, ["popular", "common", "nome popular", "especie", "essencia", "popular name"]);
+        const saldoIdx = findHeaderIdx(headers, ["saldo", "balance", "volume", "quantidade", "qtd", "m3", "estoque"]);
+
+        if (prodIdx === -1 || popIdx === -1 || saldoIdx === -1) {
+          alert("Layout de CSV não identificado. O cabeçalho deve conter pelo menos 'PRODUTO', 'POPULAR' e 'SALDO'.");
+          return;
+        }
+
+        const list: ImportedSerrariaSaldo[] = [];
+
+        for (let r = 1; r < lines.length; r++) {
+          const row = lines[r];
+          if (row.length <= Math.max(prodIdx, popIdx, saldoIdx)) continue;
+
+          const rawProd = row[prodIdx]?.replace(/^["']|["']$/g, "").trim() || "";
+          const rawCient = cientIdx !== -1 ? row[cientIdx]?.replace(/^["']|["']$/g, "").trim() || "" : "";
+          const rawPop = row[popIdx]?.replace(/^["']|["']$/g, "").trim() || "";
+          let rawSaldo = row[saldoIdx]?.replace(/^["']|["']$/g, "").trim() || "0";
+
+          if (!rawProd && !rawPop) continue;
+
+          rawSaldo = rawSaldo.replace(",", ".");
+          const saldoVal = parseFloat(rawSaldo) || 0;
+
+          list.push({
+            id: `imp_${Date.now()}_${r}_${Math.random().toString(36).substr(2, 4)}`,
+            produto: rawProd,
+            cientifico: rawCient,
+            popular: rawPop,
+            saldo: saldoVal
+          });
+        }
+
+        if (list.length === 0) {
+          alert("Nenhum item de saldo válido foi encontrado na importação.");
+          return;
+        }
+
+        const action = window.confirm(
+          `Foram identificados ${list.length} registros.\n\nDeseja SUBSTITUIR o relatório atual (clique OK) ou ADICIONAR os itens novos (clique Cancelar)?`
+        );
+
+        let finalSaldos: ImportedSerrariaSaldo[] = [];
+        if (action) {
+          finalSaldos = list;
+        } else {
+          finalSaldos = [...importedSaldos, ...list];
+        }
+
+        setImportedSaldos(finalSaldos);
+        localStorage.setItem("serraria_imported_saldos", JSON.stringify(finalSaldos));
+        alert(`${list.length} itens de saldo importados com sucesso para a Serraria!`);
+
+      } catch (err: any) {
+        alert("Falha ao analisar arquivo CSV: " + err.message);
+      }
+    };
+    reader.readAsText(file, "UTF-8");
+    e.target.value = ""; // clear selector
+  };
+
+  const handleAddManualSaldo = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPopular) {
+      alert("Informe o nome popular ou essência.");
+      return;
+    }
+    const val = parseFloat(newSaldoVal.replace(",", ".")) || 0;
+    const newItem: ImportedSerrariaSaldo = {
+      id: `manual_${Date.now()}`,
+      produto: newProdName,
+      cientifico: newCientifico,
+      popular: newPopular,
+      saldo: val
+    };
+
+    const updated = [newItem, ...importedSaldos];
+    setImportedSaldos(updated);
+    localStorage.setItem("serraria_imported_saldos", JSON.stringify(updated));
+
+    // Reset fields
+    setNewCientifico("");
+    setNewPopular("");
+    setNewSaldoVal("");
+    alert("Item adicionado manualmente com sucesso!");
+  };
+
+  const handleStartEditSaldo = (item: ImportedSerrariaSaldo) => {
+    setEditingId(item.id);
+    setEditProduto(item.produto);
+    setEditCientifico(item.cientifico);
+    setEditPopular(item.popular);
+    setEditSaldo(item.saldo.toString());
+  };
+
+  const handleSaveEditSaldo = (id: string) => {
+    const val = parseFloat(editSaldo.replace(",", ".")) || 0;
+    const updated = importedSaldos.map(item => {
+      if (item.id === id) {
+        return {
+          ...item,
+          produto: editProduto,
+          cientifico: editCientifico,
+          popular: editPopular,
+          saldo: val
+        };
+      }
+      return item;
+    });
+
+    setImportedSaldos(updated);
+    localStorage.setItem("serraria_imported_saldos", JSON.stringify(updated));
+    setEditingId(null);
+  };
+
+  const handleDeleteItemSaldo = (id: string, name: string) => {
+    if (window.confirm(`Excluir item "${name}" do relatório de saldos?`)) {
+      const updated = importedSaldos.filter(item => item.id !== id);
+      setImportedSaldos(updated);
+      localStorage.setItem("serraria_imported_saldos", JSON.stringify(updated));
+    }
+  };
+
+  const handleClearAllSaldos = () => {
+    if (window.confirm("ATENÇÃO: Deseja realmente esvaziar todo o relatório de saldos importados?")) {
+      setImportedSaldos([]);
+      localStorage.setItem("serraria_imported_saldos", JSON.stringify([]));
+    }
+  };
+
+  const handleReloadExampleSaldos = () => {
+    if (window.confirm("Deseja recarregar a lista modelo de exemplos baseada no extrato da imagem?")) {
+      setImportedSaldos(defaultExampleSaldos);
+      localStorage.setItem("serraria_imported_saldos", JSON.stringify(defaultExampleSaldos));
+    }
+  };
+
+  const handleDownloadTemplate = () => {
+    const content = "PRODUTO;CIENTIFICO;POPULAR;SALDO\n" +
+      "Madeira beneficiada;Erisma uncinatum;Libra;0,6073\n" +
+      "Madeira serrada;Hymenaea courbaril;Jatobá;2,994\n" +
+      "Madeira serrada;Peltogyne paniculata;Roxinho;2,4624\n" +
+      "TORA;Allantoma lineata;Jequitibá;68,385\n" +
+      "TORA;Enterolobium schomburgkii;Orelha-de-macaco;4,9813-";
+    
+    const blob = new Blob(["\ufeff" + content], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", "modelo_relatorio_saldos_serraria.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const saldosKpis = useMemo(() => {
+    let toraSum = 0;
+    let serradoSum = 0;
+    let beneficiadoSum = 0;
+    let totalSum = 0;
+
+    importedSaldos.forEach(item => {
+      totalSum += item.saldo;
+      const prodLower = item.produto.toLowerCase();
+      if (prodLower.includes("tora")) {
+        toraSum += item.saldo;
+      } else if (prodLower.includes("serrad")) {
+        serradoSum += item.saldo;
+      } else if (prodLower.includes("benefic")) {
+        beneficiadoSum += item.saldo;
+      }
+    });
+
+    return {
+      toraSum,
+      serradoSum,
+      beneficiadoSum,
+      totalSum
+    };
+  }, [importedSaldos]);
+
+  const filteredImportedSaldos = useMemo(() => {
+    return importedSaldos.filter(item => {
+      if (!saldosFilter) return true;
+      const term = saldosFilter.toLowerCase();
+      return (
+        item.produto.toLowerCase().includes(term) ||
+        item.cientifico.toLowerCase().includes(term) ||
+        item.popular.toLowerCase().includes(term)
+      );
+    });
+  }, [importedSaldos, saldosFilter]);
 
   // Trigger form filling from pátio list click
   const handleQuickDesdobro = (especie: string, dono: string, maxVol: number) => {
@@ -284,7 +597,7 @@ export default function SerrariaModule({
             <span>Módulo Serraria - Gestão de Toras & Desdobro</span>
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Mecanismo Ativo: Quando você efetua o desdobro, o volume correspondente <strong className="text-amber-700">sai do Estoque de Toras</strong> e <strong className="text-emerald-700">entra no Estoque de Processados</strong> automaticamente.
+            Mecanismo Ativo: Quando você efectua o desdobro, o volume correspondente <strong className="text-amber-700">sai do Estoque de Toras</strong> e <strong className="text-emerald-700">entra no Estoque de Processados</strong> automaticamente.
           </p>
         </div>
         
@@ -294,8 +607,37 @@ export default function SerrariaModule({
         </div>
       </div>
 
-      {/* Visual Flow Map Indicator */}
-      <div className="bg-gradient-to-r from-slate-900 to-slate-800 text-white p-5 rounded-2xl border border-slate-800 shadow-md">
+      {/* Navigation Subtabs */}
+      <div className="flex gap-2 border-b border-slate-200/60 pb-1 no-print">
+        <button
+          type="button"
+          onClick={() => setSerrariaSubTab("producao")}
+          className={`px-4 py-2 text-xs font-bold uppercase tracking-wide transition-all border-b-2 rounded-t-lg cursor-pointer ${
+            serrariaSubTab === "producao"
+              ? "border-emerald-600 text-emerald-800 bg-emerald-50/40 font-extrabold"
+              : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50/50"
+          }`}
+        >
+          🪚 Processos & Entrada de Toras
+        </button>
+        <button
+          type="button"
+          onClick={() => setSerrariaSubTab("saldos")}
+          className={`px-4 py-2 text-xs font-bold uppercase tracking-wide transition-all border-b-2 rounded-t-lg flex items-center gap-1.5 cursor-pointer ${
+            serrariaSubTab === "saldos"
+              ? "border-emerald-600 text-emerald-800 bg-emerald-50/40 font-extrabold"
+              : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50/50"
+          }`}
+        >
+          <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+          <span>Relatório de Saldos Geral (Serrado, Tora, Beneficiado)</span>
+        </button>
+      </div>
+
+      {serrariaSubTab === "producao" && (
+        <>
+          {/* Visual Flow Map Indicator */}
+          <div className="bg-gradient-to-r from-slate-900 to-slate-800 text-white p-5 rounded-2xl border border-slate-800 shadow-md">
         <h4 className="text-[10px] font-black uppercase tracking-wider text-emerald-400 mb-3 flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
           <span>FLUXO DINÂMICO DE CONTROLE DE SALDOS</span>
@@ -805,6 +1147,377 @@ export default function SerrariaModule({
           </div>
         )}
       </div>
+      </>
+      )}
+
+      {/* --- GENERAL BALANCES REPORT SUBTAB --- */}
+      {serrariaSubTab === "saldos" && (
+        <div className="space-y-6 animate-fade-in pb-8">
+          
+          {/* 1. Analytical Metric Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            
+            {/* Card Tora */}
+            <div className="bg-gradient-to-br from-white to-amber-50/20 p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between hover:shadow-sm transition-all duration-150">
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Estoque de Toras (TORA)</span>
+                <span className="text-2xl font-extrabold text-amber-950 mt-1 block font-mono">
+                  {saldosKpis.toraSum.toFixed(4).replace(".", ",")} <span className="text-xs font-normal text-slate-500">m³</span>
+                </span>
+              </div>
+              <div className="text-[10px] font-bold text-amber-800 flex items-center gap-1.5 mt-4 pt-2 border-t border-slate-100">
+                <Layers className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <span>Toras roliças em estoque bruto</span>
+              </div>
+            </div>
+
+            {/* Card Serrada */}
+            <div className="bg-gradient-to-br from-white to-indigo-50/20 p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between hover:shadow-sm transition-all duration-150">
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Estoque de Serrados</span>
+                <span className="text-2xl font-extrabold text-indigo-950 mt-1 block font-mono">
+                  {saldosKpis.serradoSum.toFixed(4).replace(".", ",")} <span className="text-xs font-normal text-slate-500">m³</span>
+                </span>
+              </div>
+              <div className="text-[10px] font-bold text-indigo-800 flex items-center gap-1.5 mt-4 pt-2 border-t border-slate-100">
+                <ArrowUpFromLine className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                <span>Madeira serrada beneficiada</span>
+              </div>
+            </div>
+
+            {/* Card Beneficiada */}
+            <div className="bg-gradient-to-br from-white to-teal-50/20 p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between hover:shadow-sm transition-all duration-150">
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Estoque de Beneficiados</span>
+                <span className="text-2xl font-extrabold text-teal-950 mt-1 block font-mono">
+                  {saldosKpis.beneficiadoSum.toFixed(4).replace(".", ",")} <span className="text-xs font-normal text-slate-500">m³</span>
+                </span>
+              </div>
+              <div className="text-[10px] font-bold text-teal-800 flex items-center gap-1.5 mt-4 pt-2 border-t border-slate-100">
+                <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                <span>madeira processada/aparelhada</span>
+              </div>
+            </div>
+
+            {/* Card Total */}
+            <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white p-5 rounded-2xl border border-slate-800 shadow-xs flex flex-col justify-between hover:shadow-sm transition-all duration-150">
+              <div>
+                <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider block">Volume Geral Estocado</span>
+                <span className="text-2xl font-extrabold text-emerald-400 mt-1 block font-mono">
+                  {saldosKpis.totalSum.toFixed(4).replace(".", ",")} <span className="text-xs font-normal text-slate-400">m³</span>
+                </span>
+              </div>
+              <div className="text-[10px] font-bold text-emerald-400 flex items-center gap-1.5 mt-4 pt-2 border-t border-white/5">
+                <Scale className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                <span>Soma acumulada de saldos</span>
+              </div>
+            </div>
+
+          </div>
+
+          {/* 2. Operations and forms grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            
+            {/* Column A: CSV upload and actions */}
+            <div className="lg:col-span-6 bg-white p-5 border border-slate-200 rounded-2xl shadow-sm space-y-4">
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-tight flex items-center gap-1.5">
+                  <Upload className="w-4 h-4 text-emerald-700" />
+                  <span>Importar Planilha de Saldos</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-1 text-justify">
+                  Importe arquivos CSV de inventários ou balanço de estoque de serrado, tora ou beneficiado contendo as colunas identificadoras: <strong className="text-slate-800">PRODUTO</strong>, <strong className="text-slate-805">CIENTÍFICO</strong>, <strong className="text-slate-805">POPULAR</strong> e <strong className="text-slate-805">SALDO</strong>.
+                </p>
+              </div>
+
+              {/* Upload Dropzone */}
+              <div className="border-2 border-dashed border-emerald-250 hover:border-emerald-500 hover:bg-emerald-50/10 rounded-xl p-6 text-center cursor-pointer transition relative group">
+                <input
+                  type="file"
+                  accept=".csv"
+                  onChange={handleImportSaldosCSV}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                />
+                <div className="flex flex-col items-center justify-center space-y-2">
+                  <div className="p-3 bg-emerald-50 rounded-full text-emerald-700 group-hover:scale-110 transition duration-150">
+                    <FileSpreadsheet className="w-6 h-6" />
+                  </div>
+                  <span className="text-xs font-bold text-slate-700">Selecione o arquivo CSV (.csv)</span>
+                  <span className="text-[10px] text-slate-400">ou arraste e solte o arquivo Excel exportado aqui</span>
+                </div>
+              </div>
+
+              {/* Quick actions bar */}
+              <div className="flex flex-wrap gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={handleDownloadTemplate}
+                  className="bg-slate-100 hover:bg-slate-150 text-slate-705 border border-slate-250 text-xs font-bold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  title="Baixar modelo excel estruturado para preencher"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Baixar Modelo CSV</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleReloadExampleSaldos}
+                  className="bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-150 text-xs font-bold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ml-auto"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Recarregar Exemplo da Imagem</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleClearAllSaldos}
+                  className="bg-rose-50 hover:bg-rose-100/80 text-rose-800 border border-rose-150 text-xs font-bold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>Limpar Tudo</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Column B: Fast manual insert form */}
+            <div className="lg:col-span-6 bg-white p-5 border border-slate-200 rounded-2xl shadow-sm space-y-4">
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-tight flex items-center gap-1.5">
+                  <Plus className="w-4 h-4 text-emerald-700" />
+                  <span>Adicionar Item Manualmente ao Relatório</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">Insira linhas sobressalentes ou ajustes rápidos de saldo diretamente no painel do pátio.</p>
+              </div>
+
+              <form onSubmit={handleAddManualSaldo} className="grid grid-cols-2 gap-3 pt-1">
+                <div className="col-span-2">
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Produto</label>
+                  <select
+                    value={newProdName}
+                    onChange={(e) => setNewProdName(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-white border border-slate-200 text-xs rounded-lg font-bold text-slate-800"
+                  >
+                    <option value="TORA">TORA</option>
+                    <option value="Madeira serrada">Madeira serrada</option>
+                    <option value="Madeira beneficiada">Madeira beneficiada</option>
+                    <option value="Outros">Outros</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Nome Científico</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Qualea paraensis"
+                    value={newCientifico}
+                    onChange={(e) => setNewCientifico(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-white border border-slate-200 text-xs font-medium rounded-lg text-slate-700"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Nome Popular / Essência</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Cambará"
+                    value={newPopular}
+                    onChange={(e) => setNewPopular(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-white border border-slate-200 text-xs font-bold rounded-lg text-slate-800"
+                  />
+                </div>
+
+                <div className="col-span-2 pt-1">
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Saldo Atual (M³ Estocado)</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: 32.2012"
+                      value={newSaldoVal}
+                      onChange={(e) => setNewSaldoVal(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 text-xs font-mono font-bold rounded-lg text-slate-850"
+                    />
+                    <button
+                      type="submit"
+                      className="px-5 py-1.5 bg-emerald-900 hover:bg-emerald-850 text-white font-bold text-xs rounded-lg transition-all cursor-pointer whitespace-nowrap shadow-xs"
+                    >
+                      Inserir Saldo
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
+
+          </div>
+
+          {/* 3. The Spreadsheet Table Rendering */}
+          <div className="bg-white p-5 border border-slate-200 rounded-2xl shadow-sm space-y-4">
+            
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pb-2 border-b border-slate-100">
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-tight flex items-center gap-1.5">
+                  <FileSpreadsheet className="w-5 h-5 text-emerald-800" />
+                  <span>Demonstrativo Analítico de Saldos dO Estoque</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">Disposição simples das toras roliças e beneficiamento em estoque para expedição rápida.</p>
+              </div>
+
+              {/* Instant Search Bar */}
+              <div className="relative w-full sm:w-64">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
+                <input
+                  type="text"
+                  placeholder="Pesquisar produto, essência..."
+                  value={saldosFilter}
+                  onChange={(e) => setSaldosFilter(e.target.value)}
+                  className="w-full pl-8 pr-2.5 py-1.5 bg-slate-50 border border-slate-200 text-xs rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/15 transition"
+                />
+              </div>
+            </div>
+
+            {filteredImportedSaldos.length === 0 ? (
+              <div className="p-12 text-center text-slate-400 border border-dashed border-slate-200 rounded-xl bg-slate-50">
+                Nenhum saldo encontrado no relatório de serraria. Carregue o extrato modelo ou importe seu arquivo CSV!
+              </div>
+            ) : (
+              <div className="overflow-x-auto border border-slate-300 rounded-xl shadow-xs">
+                {/* Visual Spreadsheet Theme matching Excel picture precisely: custom solid borders & solid black headers */}
+                <table className="w-full border-collapse text-xs text-left">
+                  <thead>
+                    <tr className="bg-black text-white font-extrabold uppercase font-sans border-b-2 border-slate-950 text-[11px] tracking-wider select-none">
+                      <th className="px-4 py-3 border border-slate-450 w-1/4">PRODUTO</th>
+                      <th className="px-4 py-3 border border-slate-450 w-1/4">CIENTIFICO</th>
+                      <th className="px-4 py-3 border border-slate-450 w-1/4">POPULAR</th>
+                      <th className="px-4 py-3 border border-slate-450 w-1/6 text-right font-mono">SALDO</th>
+                      <th className="px-4 py-3 border border-slate-450 w-1/6 text-center no-print">AÇÕES</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 bg-white leading-relaxed">
+                    {filteredImportedSaldos.map((item, i) => {
+                      const isEditing = editingId === item.id;
+                      return (
+                        <tr 
+                          key={item.id} 
+                          className={`${i % 2 === 0 ? "bg-white" : "bg-slate-50/30"} hover:bg-emerald-50/15 transition`}
+                        >
+                          
+                          {/* PRODUCT COL */}
+                          <td className="px-4 py-2 border border-slate-200 font-medium text-slate-800">
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={editProduto}
+                                onChange={(e) => setEditProduto(e.target.value)}
+                                className="w-full px-2 py-1 border border-slate-300 rounded font-semibold text-xs focus:ring-1 focus:ring-emerald-500"
+                              />
+                            ) : (
+                              <span>{item.produto}</span>
+                            )}
+                          </td>
+
+                          {/* SCIENTIFIC COL */}
+                          <td className="px-4 py-2 border border-slate-200 italic text-slate-500 font-mono text-[11px]">
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={editCientifico}
+                                onChange={(e) => setEditCientifico(e.target.value)}
+                                className="w-full px-2 py-1 border border-slate-300 rounded text-xs italic"
+                              />
+                            ) : (
+                              <span>{item.cientifico || "—"}</span>
+                            )}
+                          </td>
+
+                          {/* POPULAR COL */}
+                          <td className="px-4 py-2 border border-slate-200 font-bold text-slate-900 border-r">
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={editPopular}
+                                onChange={(e) => setEditPopular(e.target.value)}
+                                className="w-full px-2 py-1 border border-slate-300 rounded text-xs font-bold"
+                              />
+                            ) : (
+                              <span>{item.popular}</span>
+                            )}
+                          </td>
+
+                          {/* BALANCE COL */}
+                          <td className="px-4 py-2 border border-slate-200 text-right font-mono font-bold text-slate-950 text-xs bg-slate-50/20">
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={editSaldo}
+                                onChange={(e) => setEditSaldo(e.target.value)}
+                                className="w-24 px-2 py-1 border border-slate-300 rounded text-right font-mono font-bold text-xs"
+                              />
+                            ) : (
+                              <span>{item.saldo.toFixed(4).replace(".", ",")}</span>
+                            )}
+                          </td>
+
+                          {/* ACTIONS */}
+                          <td className="px-4 py-2 border border-slate-200 text-center no-print">
+                            <div className="flex items-center justify-center gap-1.5">
+                              {isEditing ? (
+                                <>
+                                  <button
+                                    onClick={() => handleSaveEditSaldo(item.id)}
+                                    className="p-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-850 rounded font-bold transition flex items-center gap-1 cursor-pointer"
+                                    title="Salvar alterações"
+                                  >
+                                    <Check className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => setEditingId(null)}
+                                    className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded cursor-pointer transition"
+                                    title="Cancelar"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => handleStartEditSaldo(item)}
+                                    className="px-2 py-1 text-[10px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded transition flex items-center gap-1 cursor-pointer"
+                                    title="Editar linha"
+                                  >
+                                    <Edit2 className="w-3 h-3" />
+                                    <span>Editar</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteItemSaldo(item.id, item.popular)}
+                                    className="p-1 text-rose-600 hover:bg-rose-50 hover:text-rose-800 rounded transition cursor-pointer"
+                                    title="Excluir do inventário"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            
+            {/* Info footer */}
+            <div className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-2 text-[11px] text-slate-500 font-medium">
+              <span className="font-extrabold uppercase font-mono tracking-wide text-indigo-750 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded leading-none">Dica de Exportação</span>
+              <span>Para sincronizar esses saldos com sua planilha geral, use o módulo de backup no painel do administrador para obter cópias íntegras de faturamento em tempo real.</span>
+            </div>
+            
+          </div>
+
+        </div>
+      )}
 
     </div>
   );
