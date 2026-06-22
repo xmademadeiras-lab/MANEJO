@@ -53,6 +53,32 @@ const defaultExampleSaldos: ImportedSerrariaSaldo[] = [
   { id: "ex-12", produto: "TORA", cientifico: "Caryocar villosum", popular: "Pequi", saldo: 6.1619 }
 ];
 
+const scientificNamesMap: Record<string, string> = {
+  "libra": "Erisma uncinatum",
+  "jatoba": "Hymenaea courbaril",
+  "roxinho": "Peltogyne paniculata",
+  "copaiba": "Copaifera multijuga",
+  "peroba-rosa": "Aspidosperma ellipsocarpum",
+  "breu": "Protium robustum",
+  "cambara": "Qualea paraensis",
+  "jequitiba": "Allantoma lineata",
+  "orelha-de-macaco": "Enterolobium schomburgkii",
+  "sucupira": "Bowdichia nitida",
+  "pequi": "Caryocar villosum",
+  "ipe": "Handroanthus albus",
+  "cedro": "Cedrela odorata",
+  "angelim": "Hymenolobium petraeum",
+  "maracatiara": "Astronium lecointei",
+  "tauari": "Couratari guianensis",
+  "tatajuba": "Bagassa guianensis"
+};
+
+function getScientificName(popular: string): string {
+  if (!popular) return "—";
+  const norm = popular.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return scientificNamesMap[norm] || "—";
+}
+
 interface SerrariaModuleProps {
   deductions: NfeDeduction[];
   sawmillLogs: SawmillProcessLog[];
@@ -71,6 +97,9 @@ export default function SerrariaModule({
 
   // Sub tab navigation inside SerrariaModule
   const [serrariaSubTab, setSerrariaSubTab] = useState<"producao" | "saldos">("producao");
+
+  // Selected source for general analyst report: "sistema" (live) or "importado" (custom sheet)
+  const [saldosSource, setSaldosSource] = useState<"sistema" | "importado">("sistema");
 
   // State for imported general balance report
   const [importedSaldos, setImportedSaldos] = useState<ImportedSerrariaSaldo[]>(() => {
@@ -321,44 +350,6 @@ export default function SerrariaModule({
     document.body.removeChild(link);
   };
 
-  const saldosKpis = useMemo(() => {
-    let toraSum = 0;
-    let serradoSum = 0;
-    let beneficiadoSum = 0;
-    let totalSum = 0;
-
-    importedSaldos.forEach(item => {
-      totalSum += item.saldo;
-      const prodLower = item.produto.toLowerCase();
-      if (prodLower.includes("tora")) {
-        toraSum += item.saldo;
-      } else if (prodLower.includes("serrad")) {
-        serradoSum += item.saldo;
-      } else if (prodLower.includes("benefic")) {
-        beneficiadoSum += item.saldo;
-      }
-    });
-
-    return {
-      toraSum,
-      serradoSum,
-      beneficiadoSum,
-      totalSum
-    };
-  }, [importedSaldos]);
-
-  const filteredImportedSaldos = useMemo(() => {
-    return importedSaldos.filter(item => {
-      if (!saldosFilter) return true;
-      const term = saldosFilter.toLowerCase();
-      return (
-        item.produto.toLowerCase().includes(term) ||
-        item.cientifico.toLowerCase().includes(term) ||
-        item.popular.toLowerCase().includes(term)
-      );
-    });
-  }, [importedSaldos, saldosFilter]);
-
   // Trigger form filling from pátio list click
   const handleQuickDesdobro = (especie: string, dono: string, maxVol: number) => {
     setSerrariaEspecie(especie);
@@ -576,6 +567,122 @@ export default function SerrariaModule({
       return matchSearch && matchOwner && matchProduct;
     });
   }, [sawnStockList, searchFilter, ownerFilter, productFilter]);
+
+  // Dynamically generated real system balances (TORA and Processed Wood)
+  const dynamicSystemSaldos = useMemo((): ImportedSerrariaSaldo[] => {
+    const grouped: Record<string, { produto: string; cientifico: string; popular: string; saldo: number }> = {};
+    
+    // 1. Logs currently in the yard (TORA)
+    patioStockList.forEach((item) => {
+      if (item.saldo <= 0) return;
+      const popularName = item.especie;
+      // Group by Product type under "TORA" and Species Popular name
+      const key = `TORA||${popularName.toLowerCase().trim()}`;
+      if (!grouped[key]) {
+        grouped[key] = {
+          produto: "TORA",
+          cientifico: getScientificName(popularName),
+          popular: popularName,
+          saldo: 0
+        };
+      }
+      grouped[key].saldo += item.saldo;
+    });
+
+    // 2. Processed wood stock from active sawmill conversions
+    sawnStockList.forEach((item) => {
+      if (item.volume <= 0) return;
+      const popularName = item.especie;
+      
+      // Map product name for general balances layout
+      let displayProd = "Madeira serrada";
+      const pLower = item.produto.toLowerCase();
+      if (pLower.includes("benefic")) {
+        displayProd = "Madeira beneficiada";
+      } else if (pLower.includes("tora")) {
+        displayProd = "TORA";
+      } else if (pLower.includes("rodela")) {
+        displayProd = "Rodela";
+      } else if (pLower.includes("lenha")) {
+        displayProd = "Lenha";
+      } else if (pLower.includes("lamina") || pLower.includes("lâmina")) {
+        displayProd = "Lâmina";
+      } else {
+        displayProd = "Madeira serrada"; // Default display product
+      }
+
+      const key = `${displayProd}||${popularName.toLowerCase().trim()}`;
+      if (!grouped[key]) {
+        grouped[key] = {
+          produto: displayProd,
+          cientifico: getScientificName(popularName),
+          popular: popularName,
+          saldo: 0
+        };
+      }
+      grouped[key].saldo += item.volume;
+    });
+
+    // Format as ImportedSerrariaSaldo models
+    return Object.values(grouped).map((val, i) => ({
+      id: `sys-saldos-${i}-${val.produto}-${val.popular}`,
+      produto: val.produto,
+      cientifico: val.cientifico,
+      popular: val.popular,
+      saldo: val.saldo
+    }));
+  }, [patioStockList, sawnStockList]);
+
+  // Current selected active balance list
+  const currentSaldosList = useMemo(() => {
+    if (saldosSource === "sistema") {
+      return dynamicSystemSaldos;
+    }
+    return importedSaldos;
+  }, [saldosSource, dynamicSystemSaldos, importedSaldos]);
+
+  // Dynamic KPIs calculations from active list
+  const saldosKpis = useMemo(() => {
+    let toraSum = 0;
+    let serradoSum = 0;
+    let beneficiadoSum = 0;
+    let totalSum = 0;
+
+    currentSaldosList.forEach(item => {
+      totalSum += item.saldo;
+      const prodLower = item.produto.toLowerCase();
+      if (prodLower.includes("tora")) {
+        toraSum += item.saldo;
+      } else if (prodLower.includes("serrad")) {
+        serradoSum += item.saldo;
+      } else if (prodLower.includes("benefic")) {
+        beneficiadoSum += item.saldo;
+      } else {
+        // If it's other products, they still contribute to general volume
+        serradoSum += item.saldo; 
+      }
+    });
+
+    return {
+      toraSum,
+      serradoSum,
+      beneficiadoSum,
+      totalSum
+    };
+  }, [currentSaldosList]);
+
+  // Dynamic search filtered balance list
+  const filteredImportedSaldos = useMemo(() => {
+    return currentSaldosList.filter(item => {
+      if (!saldosFilter) return true;
+      const term = saldosFilter.toLowerCase();
+      return (
+        item.produto.toLowerCase().includes(term) ||
+        item.cientifico.toLowerCase().includes(term) ||
+        item.popular.toLowerCase().includes(term)
+      );
+    });
+  }, [currentSaldosList, saldosFilter]);
 
   // Apply filters to historic process logs
   const filteredProcessLogs = useMemo(() => {
@@ -1154,6 +1261,45 @@ export default function SerrariaModule({
       {serrariaSubTab === "saldos" && (
         <div className="space-y-6 animate-fade-in pb-8">
           
+          {/* Header & Source Selection Toggle */}
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-50 border border-slate-200 p-4 rounded-2xl shadow-xs">
+            <div>
+              <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                <span className="w-2 h-2 bg-emerald-650 rounded-full inline-block animate-pulse"></span>
+                <span>ORIGEM DOS DADOS DO DEMONSTRATIVO</span>
+              </h3>
+              <p className="text-[11px] text-slate-500 mt-0.5 font-medium">Alterne entre os saldos integrados em tempo real ou a planilha importada manualmente.</p>
+            </div>
+            
+            <div className="flex bg-slate-200/85 p-1 rounded-xl w-full md:w-auto shrink-0 border border-slate-300/40">
+              <button
+                type="button"
+                onClick={() => setSaldosSource("sistema")}
+                className={`flex-1 md:flex-none px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  saldosSource === "sistema"
+                    ? "bg-emerald-900 text-white shadow-xs"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${saldosSource === "sistema" ? "animate-spin-slow" : ""}`} />
+                <span>🔄 Sincronizado do Sistema</span>
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => setSaldosSource("importado")}
+                className={`flex-1 md:flex-none px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  saldosSource === "importado"
+                    ? "bg-slate-950 text-white shadow-xs"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>📁 Planilha Importada</span>
+              </button>
+            </div>
+          </div>
+          
           {/* 1. Analytical Metric Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             
@@ -1218,8 +1364,28 @@ export default function SerrariaModule({
           {/* 2. Operations and forms grid */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             
-            {/* Column A: CSV upload and actions */}
-            <div className="lg:col-span-6 bg-white p-5 border border-slate-200 rounded-2xl shadow-sm space-y-4">
+            {saldosSource === "sistema" ? (
+              <div className="lg:col-span-12 bg-emerald-50/50 border border-emerald-100 p-6 rounded-2xl flex flex-col md:flex-row items-center gap-5 shadow-xs">
+                <div className="p-4 bg-emerald-100 text-emerald-900 rounded-full shrink-0 shadow-xs animate-pulse">
+                  <RefreshCw className="w-8 h-8" />
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-xs font-black text-emerald-950 uppercase tracking-widest flex items-center gap-1.5">
+                    <span>🔄 MODO SINCRO-DINÂMICO ATIVO</span>
+                  </h4>
+                  <p className="text-xs text-emerald-800 leading-relaxed text-justify">
+                    Os dados do **Demonstrativo Analítico** estão perfeitamente sincronizados com o **Pátio de Toras** (abates de madeira roliça que deram entrada) e as **Conversões da Serraria** (volume consumido gerando madeira serrada ou beneficiada). 
+                    As linhas abaixo reagem e atualizam-se instantaneamente a cada novo lançamento ou estorno realizado nas fichas de produção!
+                  </p>
+                  <p className="text-[11px] text-emerald-700/90 italic">
+                    *Para carregar ou preencher planilhas avulsas externas, mude para o modo "Planilha Importada" no seletor do cabeçalho.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Column A: CSV upload and actions */}
+                <div className="lg:col-span-6 bg-white p-5 border border-slate-200 rounded-2xl shadow-sm space-y-4 font-normal">
               <div>
                 <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-tight flex items-center gap-1.5">
                   <Upload className="w-4 h-4 text-emerald-700" />
@@ -1349,6 +1515,8 @@ export default function SerrariaModule({
                 </div>
               </form>
             </div>
+            </>
+          )}
 
           </div>
 
@@ -1461,44 +1629,50 @@ export default function SerrariaModule({
 
                           {/* ACTIONS */}
                           <td className="px-4 py-2 border border-slate-200 text-center no-print">
-                            <div className="flex items-center justify-center gap-1.5">
-                              {isEditing ? (
-                                <>
-                                  <button
-                                    onClick={() => handleSaveEditSaldo(item.id)}
-                                    className="p-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-850 rounded font-bold transition flex items-center gap-1 cursor-pointer"
-                                    title="Salvar alterações"
-                                  >
-                                    <Check className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    onClick={() => setEditingId(null)}
-                                    className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded cursor-pointer transition"
-                                    title="Cancelar"
-                                  >
-                                    <X className="w-3.5 h-3.5" />
-                                  </button>
-                                </>
-                              ) : (
-                                <>
-                                  <button
-                                    onClick={() => handleStartEditSaldo(item)}
-                                    className="px-2 py-1 text-[10px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded transition flex items-center gap-1 cursor-pointer"
-                                    title="Editar linha"
-                                  >
-                                    <Edit2 className="w-3 h-3" />
-                                    <span>Editar</span>
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteItemSaldo(item.id, item.popular)}
-                                    className="p-1 text-rose-600 hover:bg-rose-50 hover:text-rose-800 rounded transition cursor-pointer"
-                                    title="Excluir do inventário"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </>
-                              )}
-                            </div>
+                            {saldosSource === "sistema" ? (
+                              <span className="text-[10px] bg-slate-100 text-slate-500 font-bold px-2.5 py-1 rounded-md border border-slate-205 inline-block font-mono">
+                                Sincronizado
+                              </span>
+                            ) : (
+                              <div className="flex items-center justify-center gap-1.5">
+                                {isEditing ? (
+                                  <>
+                                    <button
+                                      onClick={() => handleSaveEditSaldo(item.id)}
+                                      className="p-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-850 rounded font-bold transition flex items-center gap-1 cursor-pointer"
+                                      title="Salvar alterações"
+                                    >
+                                      <Check className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => setEditingId(null)}
+                                      className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded cursor-pointer transition"
+                                      title="Cancelar"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button
+                                      onClick={() => handleStartEditSaldo(item)}
+                                      className="px-2 py-1 text-[10px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded transition flex items-center gap-1 cursor-pointer"
+                                      title="Editar linha"
+                                    >
+                                      <Edit2 className="w-3 h-3" />
+                                      <span>Editar</span>
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteItemSaldo(item.id, item.popular)}
+                                      className="p-1 text-rose-600 hover:bg-rose-50 hover:text-rose-800 rounded transition cursor-pointer"
+                                      title="Excluir do inventário"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            )}
                           </td>
                         </tr>
                       );
