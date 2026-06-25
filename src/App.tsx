@@ -397,7 +397,7 @@ export default function App() {
           "sucesso"
         );
       } catch (err: any) {
-        console.error("Erro ao sincronizar dados com Supabase:", err);
+        console.warn("Erro ao sincronizar dados com Supabase:", err);
         setSupabaseSyncError("Banco de dados indisponível ou migrações incompletas. Usando armazenamento offline local.");
       }
     }
@@ -586,7 +586,7 @@ export default function App() {
           await saveAutexInDb(a);
         }
       } catch (err) {
-        console.error("Falha ao propagar alterações de AUTEX para Supabase:", err);
+        console.warn("Falha ao propagar alterações de AUTEX para Supabase:", err);
       }
     }
   };
@@ -607,7 +607,7 @@ export default function App() {
           await saveDeductionsInDb(list);
         }
       } catch (err) {
-        console.error("Falha ao propagar faturamento para o Supabase:", err);
+        console.warn("Falha ao propagar faturamento para o Supabase:", err);
       }
     }
   };
@@ -628,7 +628,7 @@ export default function App() {
           await saveSawmillLogsInDb(list);
         }
       } catch (err) {
-        console.error("Falha ao sincronizar logs de serraria com Supabase:", err);
+        console.warn("Falha ao sincronizar logs de serraria com Supabase:", err);
       }
     }
   };

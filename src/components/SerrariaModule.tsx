@@ -112,6 +112,15 @@ function getScientificName(popular: string): string {
   return "—";
 }
 
+function getBaseProduct(prod: string): string {
+  if (!prod) return "";
+  const idx = prod.indexOf(" (");
+  if (idx !== -1) {
+    return prod.substring(0, idx).trim();
+  }
+  return prod.trim();
+}
+
 interface SerrariaModuleProps {
   deductions: NfeDeduction[];
   sawmillLogs: SawmillProcessLog[];
@@ -134,6 +143,9 @@ export default function SerrariaModule({
   // Search filter for balances
   const [saldosFilter, setSaldosFilter] = useState("");
 
+  // Form tab selection
+  const [activeFormTab, setActiveFormTab] = useState<"desdobro" | "saida">("desdobro");
+
   // Form states for manual process registration (desdobro)
   const [serrariaEspecie, setSerrariaEspecie] = useState("");
   const [serrariaDono, setSerrariaDono] = useState("");
@@ -141,6 +153,14 @@ export default function SerrariaModule({
   const [serrariaVolSerrado, setSerrariaVolSerrado] = useState("");
   const [serrariaProduto, setSerrariaProduto] = useState("Serrado");
   const [serrariaDate, setSerrariaDate] = useState(() => new Date().toISOString().split("T")[0]);
+
+  // Form states for manual product exit (venda externa)
+  const [vendaEspecie, setVendaEspecie] = useState("");
+  const [vendaDono, setVendaDono] = useState("");
+  const [vendaProduto, setVendaProduto] = useState("");
+  const [vendaVolume, setVendaVolume] = useState("");
+  const [vendaCliente, setVendaCliente] = useState("");
+  const [vendaDate, setVendaDate] = useState(() => new Date().toISOString().split("T")[0]);
 
   const handleExportSaldosCSV = () => {
     if (currentSaldosList.length === 0) return;
@@ -317,18 +337,6 @@ export default function SerrariaModule({
     alert("Processamento de desdobro registrado com sucesso! O estoque do pátio foi abatido e a madeira serrada foi adicionada.");
   };
 
-  // Revert/Delete process log
-  const handleDeleteProcessLog = (id: string, esp: string, vol: number) => {
-    if (window.confirm(`Tem certeza que deseja estornar este desdobro de ${vol.toFixed(3)} m³ de ${esp}? O volume de toras retornará ao pátio.`)) {
-      const updated = sawmillLogs.filter(x => x.id !== id);
-      saveSawmillLogs(updated);
-    }
-  };
-
-  const saveSawmillLogs = (list: SawmillProcessLog[]) => {
-    onSaveSawmillLogs(list);
-  };
-
   // Metrics calculation
   const totalLogsReceived = useMemo(() => deductions.reduce((sum, d) => sum + d.volume, 0), [deductions]);
   const totalLogsProcessed = useMemo(() => sawmillLogs.reduce((sum, l) => sum + l.volumeTora, 0), [sawmillLogs]);
@@ -336,7 +344,7 @@ export default function SerrariaModule({
     return Math.max(0, totalLogsReceived - totalLogsProcessed);
   }, [totalLogsReceived, totalLogsProcessed]);
 
-  const totalSawnProduced = useMemo(() => sawmillLogs.reduce((sum, l) => sum + l.volumeSerrado, 0), [sawmillLogs]);
+  const totalSawnProduced = useMemo(() => sawmillLogs.filter(l => l.volumeSerrado > 0).reduce((sum, l) => sum + l.volumeSerrado, 0), [sawmillLogs]);
   const overallYield = useMemo(() => {
     if (totalLogsProcessed === 0) return 0;
     return (totalSawnProduced / totalLogsProcessed) * 100;
@@ -346,10 +354,11 @@ export default function SerrariaModule({
   const sawnStockList = useMemo(() => {
     const list: { especie: string; dono: string; produto: string; volume: number }[] = [];
     sawmillLogs.forEach(log => {
+      const baseProduct = getBaseProduct(log.produtoSaida);
       const existing = list.find(
         x => x.especie.toLowerCase().trim() === log.especie.toLowerCase().trim() &&
              x.dono.toLowerCase().trim() === log.dono.toLowerCase().trim() &&
-             x.produto.toLowerCase().trim() === log.produtoSaida.toLowerCase().trim()
+             getBaseProduct(x.produto).toLowerCase().trim() === baseProduct.toLowerCase().trim()
       );
       if (existing) {
         existing.volume += log.volumeSerrado;
@@ -357,13 +366,176 @@ export default function SerrariaModule({
         list.push({
           especie: log.especie,
           dono: log.dono,
-          produto: log.produtoSaida,
+          produto: baseProduct,
           volume: log.volumeSerrado
         });
       }
     });
     return list;
   }, [sawmillLogs]);
+
+  // Unique species available in Sawn/Benefited stock with positive volume
+  const uniqueSawnSpecies = useMemo(() => {
+    return Array.from(new Set(sawnStockList.filter(x => x.volume > 0.0001).map(x => x.especie)));
+  }, [sawnStockList]);
+
+  // Unique owners for selected species in Sawn/Benefited stock with positive volume
+  const uniqueSawnOwnersForSelectedSpecies = useMemo(() => {
+    if (!vendaEspecie) return [];
+    return Array.from(new Set(
+      sawnStockList
+        .filter(x => x.especie.toLowerCase().trim() === vendaEspecie.toLowerCase().trim() && x.volume > 0.0001)
+        .map(x => x.dono)
+    ));
+  }, [vendaEspecie, sawnStockList]);
+
+  // Unique products for selected species and owner in Sawn/Benefited stock with positive volume
+  const uniqueSawnProductsForSelectedSpecAndOwner = useMemo(() => {
+    if (!vendaEspecie || !vendaDono) return [];
+    return Array.from(new Set(
+      sawnStockList
+        .filter(
+          x => x.especie.toLowerCase().trim() === vendaEspecie.toLowerCase().trim() &&
+               x.dono.toLowerCase().trim() === vendaDono.toLowerCase().trim() &&
+               x.volume > 0.0001
+        )
+        .map(x => x.produto)
+    ));
+  }, [vendaEspecie, vendaDono, sawnStockList]);
+
+  // Sync owners and products when species changes
+  const handleVendaSpeciesChange = (esp: string) => {
+    setVendaEspecie(esp);
+    const relatedOwners = sawnStockList.filter(
+      x => x.especie.toLowerCase().trim() === esp.toLowerCase().trim() && x.volume > 0.0001
+    );
+    if (relatedOwners.length > 0) {
+      const firstDono = relatedOwners[0].dono;
+      setVendaDono(firstDono);
+      const relatedProds = sawnStockList.filter(
+        x => x.especie.toLowerCase().trim() === esp.toLowerCase().trim() &&
+             x.dono.toLowerCase().trim() === firstDono.toLowerCase().trim() &&
+             x.volume > 0.0001
+      );
+      if (relatedProds.length > 0) {
+        setVendaProduto(relatedProds[0].produto);
+      } else {
+        setVendaProduto("");
+      }
+    } else {
+      setVendaDono("");
+      setVendaProduto("");
+    }
+  };
+
+  // Sync products when owner changes
+  const handleVendaOwnerChange = (dono: string) => {
+    setVendaDono(dono);
+    const relatedProds = sawnStockList.filter(
+      x => x.especie.toLowerCase().trim() === vendaEspecie.toLowerCase().trim() &&
+           x.dono.toLowerCase().trim() === dono.toLowerCase().trim() &&
+           x.volume > 0.0001
+    );
+    if (relatedProds.length > 0) {
+      setVendaProduto(relatedProds[0].produto);
+    } else {
+      setVendaProduto("");
+    }
+  };
+
+  // Calculate current available finished goods balance
+  const currentSawnStockBalance = useMemo(() => {
+    if (!vendaEspecie || !vendaDono || !vendaProduto) return 0;
+    const match = sawnStockList.find(
+      x => x.especie.toLowerCase().trim() === vendaEspecie.toLowerCase().trim() &&
+           x.dono.toLowerCase().trim() === vendaDono.toLowerCase().trim() &&
+           x.produto.toLowerCase().trim() === vendaProduto.toLowerCase().trim()
+    );
+    return match ? match.volume : 0;
+  }, [vendaEspecie, vendaDono, vendaProduto, sawnStockList]);
+
+  // Form submission: external product sale / exit
+  const handleSubmitVenda = (e: React.FormEvent) => {
+    e.preventDefault();
+    const volVenda = parseFloat(vendaVolume);
+
+    if (!vendaEspecie) {
+      alert("Selecione a espécie para a saída.");
+      return;
+    }
+    if (!vendaDono) {
+      alert("Selecione o proprietário florestal correspondente.");
+      return;
+    }
+    if (!vendaProduto) {
+      alert("Selecione o produto acabado.");
+      return;
+    }
+    if (isNaN(volVenda) || volVenda <= 0) {
+      alert("Informe um volume de saída válido.");
+      return;
+    }
+    if (volVenda > currentSawnStockBalance + 0.0001) {
+      alert(`Volume superior ao estoque disponível para este produto (${currentSawnStockBalance.toFixed(3)} m³).`);
+      return;
+    }
+
+    const labelCliente = vendaCliente.trim() ? `Venda: ${vendaCliente.trim()}` : "Venda Externa";
+    const displayProduct = `${vendaProduto} (${labelCliente})`;
+
+    const newLog: SawmillProcessLog = {
+      id: "sale_" + Math.random().toString(36).substr(2, 9),
+      especie: vendaEspecie,
+      dono: vendaDono,
+      volumeTora: 0,
+      volumeSerrado: -volVenda,
+      produtoSaida: displayProduct,
+      rendimento: 0,
+      dataProcessamento: vendaDate
+    };
+
+    saveSawmillLogs([newLog, ...sawmillLogs]);
+
+    // Reset inputs
+    setVendaVolume("");
+    setVendaCliente("");
+    alert(`Saída de produto registrada com sucesso! ${volVenda.toFixed(3)} m³ de ${vendaEspecie} (${vendaProduto}) foram abatidos do estoque.`);
+  };
+
+  // Quick fill sale form from Warehouse table
+  const handleQuickVenda = (especie: string, dono: string, produto: string, maxVol: number) => {
+    setActiveFormTab("saida");
+    setVendaEspecie(especie);
+    setVendaDono(dono);
+    setVendaProduto(produto);
+    setVendaVolume(maxVol.toFixed(3));
+    
+    // Smooth scroll to form
+    const elem = document.getElementById("form-desdobro-serraria");
+    if (elem) {
+      elem.scrollIntoView({ behavior: "smooth" });
+    }
+  };
+
+  // Revert/Delete process log (handles both Desdobro and Sale logs)
+  const handleDeleteProcessLog = (id: string, esp: string, vol: number) => {
+    const logItem = sawmillLogs.find(x => x.id === id);
+    if (!logItem) return;
+
+    const isVenda = logItem.volumeSerrado < 0;
+    const msg = isVenda
+      ? `Tem certeza que deseja estornar esta saída/venda de ${Math.abs(logItem.volumeSerrado).toFixed(3)} m³ de ${esp}? O volume retornará ao estoque de acabados.`
+      : `Tem certeza que deseja estornar este desdobro de ${vol.toFixed(3)} m³ de ${esp}? O volume de toras retornará ao pátio.`;
+
+    if (window.confirm(msg)) {
+      const updated = sawmillLogs.filter(x => x.id !== id);
+      saveSawmillLogs(updated);
+    }
+  };
+
+  const saveSawmillLogs = (list: SawmillProcessLog[]) => {
+    onSaveSawmillLogs(list);
+  };
 
   // Apply filters to yard stock list
   const filteredPatioStock = useMemo(() => {
@@ -767,186 +939,372 @@ export default function SerrariaModule({
           )}
         </div>
 
-        {/* Right Side: Log Processing Form (Ficha de Desdobro) */}
+        {/* Right Side: Tabbed Action Card (Desdobro or Venda Externa) */}
         <div 
           id="form-desdobro-serraria"
           className="lg:col-span-5 bg-gradient-to-br from-white to-slate-50/40 p-5 border border-slate-200 rounded-2xl shadow-sm space-y-4 relative overflow-hidden"
         >
           <div className="absolute top-0 right-0 w-20 h-20 bg-emerald-50 rounded-full -mr-10 -mt-10 opacity-30"></div>
           
-          <div className="relative">
-            <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-tight flex items-center gap-2">
-              <Plus className="w-5 h-5 text-emerald-700 bg-emerald-50 p-1 rounded-full shrink-0" />
-              <span>Registrar Desdobro (Serramento)</span>
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">Informe o volume de toras processado e a madeira serrada resultante.</p>
+          {/* Segmented Control / Form Tab Switcher */}
+          <div className="flex bg-slate-100 p-1 rounded-xl gap-1 relative z-10">
+            <button
+              type="button"
+              onClick={() => setActiveFormTab("desdobro")}
+              className={`flex-1 py-1.5 text-[11px] font-bold uppercase rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                activeFormTab === "desdobro"
+                  ? "bg-white text-emerald-800 shadow-xs font-extrabold"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Desdobro (Serramento)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveFormTab("saida");
+                // Select first species if not set and available
+                if (!vendaEspecie && uniqueSawnSpecies.length > 0) {
+                  handleVendaSpeciesChange(uniqueSawnSpecies[0]);
+                }
+              }}
+              className={`flex-1 py-1.5 text-[11px] font-bold uppercase rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                activeFormTab === "saida"
+                  ? "bg-white text-indigo-800 shadow-xs font-extrabold"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <ArrowUpFromLine className="w-3.5 h-3.5" />
+              <span>Saída (Venda Externa)</span>
+            </button>
           </div>
 
-          <form onSubmit={handleSubmitProcess} className="space-y-4 pt-1 relative">
-            
-            {/* Espécie Dropdown selector */}
-            <div>
-              <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
-                Espécie de Madeira
-              </label>
-              <select
-                value={serrariaEspecie}
-                onChange={(e) => handleSpeciesChange(e.target.value)}
-                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 transition"
-                required
-              >
-                <option value="">-- Selecione uma espécie --</option>
-                {uniquePatioSpecies.map(esp => (
-                  <option key={esp} value={esp}>{esp}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Owner Dropdown list holding this specie */}
-            <div>
-              <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
-                Proprietário / Dono do lote
-              </label>
-              <select
-                value={serrariaDono}
-                onChange={(e) => setSerrariaDono(e.target.value)}
-                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 transition disabled:opacity-50"
-                disabled={!serrariaEspecie}
-                required
-              >
-                <option value="">-- Selecione o dono --</option>
-                {uniquePatioOwnersForSelectedSpecies.map(dono => (
-                  <option key={dono} value={dono}>{dono}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Current Yard Balance Display Badge */}
-            {serrariaEspecie && serrariaDono && (
-              <div className="p-3 bg-amber-50/50 border border-amber-100 rounded-xl flex justify-between items-center text-xs text-amber-900">
-                <span className="font-semibold text-amber-800">Saldo de tora no pátio:</span>
-                <span className="font-mono font-bold text-amber-950">{currentAvailableFormBalance.toFixed(3)} m³</span>
+          {activeFormTab === "desdobro" ? (
+            <>
+              <div className="relative pt-1">
+                <h3 className="text-xs font-extrabold text-slate-900 uppercase tracking-tight flex items-center gap-2">
+                  <span className="w-2 h-2 bg-emerald-600 rounded-full"></span>
+                  <span>Registrar Desdobro (Serramento)</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">Informe o volume de toras processado e a madeira serrada resultante.</p>
               </div>
-            )}
 
-            {/* Log Input Volume */}
-            <div>
-              <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
-                Volume de Tora Desdobrada (M³ Entrada)
-              </label>
-              <div className="flex gap-1.5">
-                <input
-                  type="number"
-                  step="0.001"
-                  placeholder="Ex: 15.420"
-                  value={serrariaVolTora}
-                  onChange={(e) => setSerrariaVolTora(e.target.value)}
-                  className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 transition"
-                  required
-                />
+              <form onSubmit={handleSubmitProcess} className="space-y-4 pt-1 relative">
+                
+                {/* Espécie Dropdown selector */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                    Espécie de Madeira
+                  </label>
+                  <select
+                    value={serrariaEspecie}
+                    onChange={(e) => handleSpeciesChange(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 transition"
+                    required
+                  >
+                    <option value="">-- Selecione uma espécie --</option>
+                    {uniquePatioSpecies.map(esp => (
+                      <option key={esp} value={esp}>{esp}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Owner Dropdown list holding this specie */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                    Proprietário / Dono do lote
+                  </label>
+                  <select
+                    value={serrariaDono}
+                    onChange={(e) => setSerrariaDono(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 transition disabled:opacity-50"
+                    disabled={!serrariaEspecie}
+                    required
+                  >
+                    <option value="">-- Selecione o dono --</option>
+                    {uniquePatioOwnersForSelectedSpecies.map(dono => (
+                      <option key={dono} value={dono}>{dono}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Current Yard Balance Display Badge */}
+                {serrariaEspecie && serrariaDono && (
+                  <div className="p-3 bg-amber-50/50 border border-amber-100 rounded-xl flex justify-between items-center text-xs text-amber-900">
+                    <span className="font-semibold text-amber-800">Saldo de tora no pátio:</span>
+                    <span className="font-mono font-bold text-amber-950">{currentAvailableFormBalance.toFixed(3)} m³</span>
+                  </div>
+                )}
+
+                {/* Log Input Volume */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                    Volume de Tora Desdobrada (M³ Entrada)
+                  </label>
+                  <div className="flex gap-1.5">
+                    <input
+                      type="number"
+                      step="0.001"
+                      placeholder="Ex: 15.420"
+                      value={serrariaVolTora}
+                      onChange={(e) => setSerrariaVolTora(e.target.value)}
+                      className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 transition"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (serrariaEspecie && serrariaDono) {
+                          setSerrariaVolTora(currentAvailableFormBalance.toString());
+                          setSerrariaVolSerrado((currentAvailableFormBalance * 0.45).toString());
+                        }
+                      }}
+                      className="px-3 bg-slate-100 rounded-lg text-slate-700 font-bold text-[9px] uppercase hover:bg-slate-200 transition"
+                      disabled={!serrariaEspecie || !serrariaDono}
+                      title="Abater estoque total disponível"
+                    >
+                      Tudo
+                    </button>
+                  </div>
+                </div>
+
+                {/* Separator */}
+                <div className="border-t border-dashed border-slate-200/80 my-3"></div>
+
+                {/* Output Product Selection */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                    Produto Acabado Produzido
+                  </label>
+                  <select
+                    value={serrariaProduto}
+                    onChange={(e) => setSerrariaProduto(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-805 focus:outline-none focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 transition"
+                    required
+                  >
+                    <option value="Tora">Tora</option>
+                    <option value="Serrado">Serrado</option>
+                    <option value="Beneficiado">Beneficiado</option>
+                    <option value="Rodela">Rodela</option>
+                    <option value="Lenha">Lenha</option>
+                    <option value="Lâmina">Lâmina</option>
+                  </select>
+                </div>
+
+                {/* Produced Sawn Timber Volume */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                    Volume Resultante Produzido (M³ Saída)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    placeholder="Ex: 6.940 (Aprox. 45% de rendimento)"
+                    value={serrariaVolSerrado}
+                    onChange={(e) => setSerrariaVolSerrado(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 transition"
+                    required
+                  />
+                </div>
+
+                {/* Date */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                    Data do Processamento
+                  </label>
+                  <input
+                    type="date"
+                    value={serrariaDate}
+                    onChange={(e) => setSerrariaDate(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 transition font-mono text-slate-800"
+                    required
+                  />
+                </div>
+
+                {/* Real-time yield renderer */}
+                {formYieldPercent > 0 && (
+                  <div className={`p-3 rounded-xl border text-xs font-semibold flex items-center justify-between transition-all ${
+                    formYieldPercent > 100 
+                      ? "bg-rose-50 border-rose-200 text-rose-800" 
+                      : formYieldPercent > 60 
+                        ? "bg-amber-50 border-amber-200 text-amber-800"
+                        : "bg-emerald-50 border-emerald-100 text-emerald-800"
+                  }`}>
+                    <span className="flex items-center gap-1.5">
+                      <Percent className="w-4 h-4 text-emerald-600" />
+                      <span>Rendimento Estimado:</span>
+                    </span>
+                    <span className="font-mono font-bold">{formYieldPercent.toFixed(1)}%</span>
+                  </div>
+                )}
+
+                {/* Disclaimer on high yield */}
+                {formYieldPercent > 70 && (
+                  <div className="text-[10px] text-amber-800 font-medium flex items-start gap-1 p-1 italic leading-tight">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-650" />
+                    <span>Rendimentos acima de 70% são incomuns no desdobro físico de toras roliças. Revise os campos.</span>
+                  </div>
+                )}
+
                 <button
-                  type="button"
-                  onClick={() => {
-                    if (serrariaEspecie && serrariaDono) {
-                      setSerrariaVolTora(currentAvailableFormBalance.toString());
-                      setSerrariaVolSerrado((currentAvailableFormBalance * 0.45).toString());
-                    }
-                  }}
-                  className="px-3 bg-slate-100 rounded-lg text-slate-700 font-bold text-[9px] uppercase hover:bg-slate-200 transition"
-                  disabled={!serrariaEspecie || !serrariaDono}
-                  title="Abater estoque total disponível"
+                  type="submit"
+                  className="w-full py-2.5 bg-emerald-900 text-white font-bold rounded-xl text-xs hover:bg-emerald-850 hover:-translate-y-0.5 transition-all duration-150 shadow-sm cursor-pointer"
                 >
-                  Tudo
+                  Gravar Desdobro & Produzir Processados
                 </button>
+
+              </form>
+            </>
+          ) : (
+            <>
+              <div className="relative pt-1">
+                <h3 className="text-xs font-extrabold text-slate-900 uppercase tracking-tight flex items-center gap-2">
+                  <span className="w-2 h-2 bg-indigo-600 rounded-full"></span>
+                  <span>Registrar Saída (Venda Externa)</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">Registre a expedição / venda externa de produtos de madeira processada do estoque.</p>
               </div>
-            </div>
 
-            {/* Separator */}
-            <div className="border-t border-dashed border-slate-200/80 my-3"></div>
+              {uniqueSawnSpecies.length === 0 ? (
+                <div className="p-6 text-center text-slate-500 text-xs bg-slate-100/50 border border-dashed border-slate-200 rounded-xl leading-relaxed">
+                  Sem produtos de madeira acabada em estoque para expedir. Realize desdobros de toras no pátio primeiro.
+                </div>
+              ) : (
+                <form onSubmit={handleSubmitVenda} className="space-y-4 pt-1 relative">
+                  {/* Espécie */}
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                      Espécie de Madeira
+                    </label>
+                    <select
+                      value={vendaEspecie}
+                      onChange={(e) => handleVendaSpeciesChange(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/15 focus:border-indigo-600 transition"
+                      required
+                    >
+                      <option value="">-- Selecione uma espécie --</option>
+                      {uniqueSawnSpecies.map(esp => (
+                        <option key={esp} value={esp}>{esp}</option>
+                      ))}
+                    </select>
+                  </div>
 
-            {/* Output Product Selection */}
-            <div>
-              <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
-                Produto Acabado Produzido
-              </label>
-              <select
-                value={serrariaProduto}
-                onChange={(e) => setSerrariaProduto(e.target.value)}
-                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-805 focus:outline-none focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 transition"
-                required
-              >
-                <option value="Tora">Tora</option>
-                <option value="Serrado">Serrado</option>
-                <option value="Beneficiado">Beneficiado</option>
-                <option value="Rodela">Rodela</option>
-                <option value="Lenha">Lenha</option>
-                <option value="Lâmina">Lâmina</option>
-              </select>
-            </div>
+                  {/* Proprietário / Dono */}
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                      Proprietário / Dono do lote
+                    </label>
+                    <select
+                      value={vendaDono}
+                      onChange={(e) => handleVendaOwnerChange(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/15 focus:border-indigo-600 transition disabled:opacity-50"
+                      disabled={!vendaEspecie}
+                      required
+                    >
+                      <option value="">-- Selecione o dono --</option>
+                      {uniqueSawnOwnersForSelectedSpecies.map(dono => (
+                        <option key={dono} value={dono}>{dono}</option>
+                      ))}
+                    </select>
+                  </div>
 
-            {/* Produced Sawn Timber Volume */}
-            <div>
-              <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
-                Volume Resultante Produzido (M³ Saída)
-              </label>
-              <input
-                type="number"
-                step="0.001"
-                placeholder="Ex: 6.940 (Aprox. 45% de rendimento)"
-                value={serrariaVolSerrado}
-                onChange={(e) => setSerrariaVolSerrado(e.target.value)}
-                className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 transition"
-                required
-              />
-            </div>
+                  {/* Produto acabado */}
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                      Produto Acabado
+                    </label>
+                    <select
+                      value={vendaProduto}
+                      onChange={(e) => setVendaProduto(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/15 focus:border-indigo-600 transition disabled:opacity-50"
+                      disabled={!vendaDono}
+                      required
+                    >
+                      <option value="">-- Selecione o produto --</option>
+                      {uniqueSawnProductsForSelectedSpecAndOwner.map(prod => (
+                        <option key={prod} value={prod}>{prod}</option>
+                      ))}
+                    </select>
+                  </div>
 
-            {/* Date */}
-            <div>
-              <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
-                Data do Processamento
-              </label>
-              <input
-                type="date"
-                value={serrariaDate}
-                onChange={(e) => setSerrariaDate(e.target.value)}
-                className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 transition font-mono text-slate-800"
-                required
-              />
-            </div>
+                  {/* Available Stock Display Badge */}
+                  {vendaEspecie && vendaDono && vendaProduto && (
+                    <div className="p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl flex justify-between items-center text-xs text-indigo-900">
+                      <span className="font-semibold text-indigo-800">Saldo estocado disponível:</span>
+                      <span className="font-mono font-bold text-indigo-950">{currentSawnStockBalance.toFixed(3)} m³</span>
+                    </div>
+                  )}
 
-            {/* Real-time yield renderer */}
-            {formYieldPercent > 0 && (
-              <div className={`p-3 rounded-xl border text-xs font-semibold flex items-center justify-between transition-all ${
-                formYieldPercent > 100 
-                  ? "bg-rose-50 border-rose-200 text-rose-800" 
-                  : formYieldPercent > 60 
-                    ? "bg-amber-50 border-amber-200 text-amber-800"
-                    : "bg-emerald-50 border-emerald-100 text-emerald-800"
-              }`}>
-                <span className="flex items-center gap-1.5">
-                  <Percent className="w-4 h-4 text-emerald-600" />
-                  <span>Rendimento Estimado:</span>
-                </span>
-                <span className="font-mono font-bold">{formYieldPercent.toFixed(1)}%</span>
-              </div>
-            )}
+                  {/* Volume de Saída */}
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                      Volume de Saída / Venda (M³)
+                    </label>
+                    <div className="flex gap-1.5">
+                      <input
+                        type="number"
+                        step="0.001"
+                        placeholder="Ex: 5.420"
+                        value={vendaVolume}
+                        onChange={(e) => setVendaVolume(e.target.value)}
+                        className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/15 focus:border-indigo-600 transition"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (vendaEspecie && vendaDono && vendaProduto) {
+                            setVendaVolume(currentSawnStockBalance.toString());
+                          }
+                        }}
+                        className="px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 font-bold text-[9px] uppercase transition border border-indigo-200 rounded-lg"
+                        disabled={!vendaEspecie || !vendaDono || !vendaProduto}
+                        title="Preencher com todo saldo disponível"
+                      >
+                        Tudo
+                      </button>
+                    </div>
+                  </div>
 
-            {/* Disclaimer on high yield */}
-            {formYieldPercent > 70 && (
-              <div className="text-[10px] text-amber-800 font-medium flex items-start gap-1 p-1 italic leading-tight">
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-650" />
-                <span>Rendimentos acima de 70% são incomuns no desdobro físico de toras roliças. Revise os campos.</span>
-              </div>
-            )}
+                  {/* Cliente / Destinatário */}
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                      Cliente / Destinatário (Opcional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Madeireira Silva Ltda"
+                      value={vendaCliente}
+                      onChange={(e) => setVendaCliente(e.target.value)}
+                      className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/15 focus:border-indigo-600 transition"
+                    />
+                  </div>
 
-            <button
-              type="submit"
-              className="w-full py-2.5 bg-emerald-900 text-white font-bold rounded-xl text-xs hover:bg-emerald-850 hover:-translate-y-0.5 transition-all duration-150 shadow-sm cursor-pointer"
-            >
-              Gravar Desdobro & Produzir Processados
-            </button>
+                  {/* Data */}
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                      Data da Saída
+                    </label>
+                    <input
+                      type="date"
+                      value={vendaDate}
+                      onChange={(e) => setVendaDate(e.target.value)}
+                      className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/15 focus:border-indigo-600 transition font-mono text-slate-800"
+                      required
+                    />
+                  </div>
 
-          </form>
+                  <button
+                    type="submit"
+                    className="w-full py-2.5 bg-indigo-900 text-white font-bold rounded-xl text-xs hover:bg-indigo-850 hover:-translate-y-0.5 transition-all duration-150 shadow-sm cursor-pointer"
+                  >
+                    Gravar Saída & Abater Estoque Acabado
+                  </button>
+                </form>
+              )}
+            </>
+          )}
         </div>
 
       </div>
@@ -961,7 +1319,7 @@ export default function SerrariaModule({
           <p className="text-xs text-slate-500 mt-0.5">Volume acabado por produto, espécie e dono disponível para expedição.</p>
         </div>
 
-        {filteredSawnStock.length === 0 ? (
+        {filteredSawnStock.filter(row => row.volume > 0.0001).length === 0 ? (
           <div className="p-8 text-center text-slate-400 bg-slate-50 border border-dashed border-slate-200 rounded-xl">
             Nenhum produto de madeira processada estocado. Utilize a ficha lateral para realizar o desdobro de toras.
           </div>
@@ -975,10 +1333,11 @@ export default function SerrariaModule({
                   <th className="px-3.5 py-3">Produto Acabado</th>
                   <th className="px-3.5 py-3 text-right">Volume Estocado</th>
                   <th className="px-3.5 py-3 text-center">Status</th>
+                  <th className="px-3.5 py-3 text-center no-print">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredSawnStock.map((row, i) => (
+                {filteredSawnStock.filter(row => row.volume > 0.0001).map((row, i) => (
                   <tr key={i} className="hover:bg-slate-50/50 transition">
                     <td className="px-3.5 py-2.5 font-bold text-slate-900">{row.especie}</td>
                     <td className="px-3.5 py-2.5 text-slate-650 font-medium">{row.dono}</td>
@@ -990,6 +1349,15 @@ export default function SerrariaModule({
                       <span className="bg-emerald-50 text-emerald-950 font-bold text-[9px] px-2.5 py-0.5 uppercase tracking-tight border border-emerald-250 rounded-full inline-block">
                         Disponível
                       </span>
+                    </td>
+                    <td className="px-3.5 py-2.5 text-center no-print">
+                      <button
+                        type="button"
+                        onClick={() => handleQuickVenda(row.especie, row.dono, row.produto, row.volume)}
+                        className="bg-indigo-50 hover:bg-indigo-100 text-indigo-900 font-extrabold text-[9px] uppercase px-2 py-1 rounded transition border border-indigo-150 inline-block cursor-pointer shadow-xs"
+                      >
+                        Vender / Sair
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -1034,34 +1402,47 @@ export default function SerrariaModule({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredProcessLogs.map((log) => (
-                  <tr key={log.id} className="hover:bg-slate-50/50 transition">
-                    <td className="px-3.5 py-3 font-semibold text-slate-950 font-mono">{log.dataProcessamento}</td>
-                    <td className="px-3.5 py-3 font-bold text-slate-900">{log.especie}</td>
-                    <td className="px-3.5 py-3 font-mono text-slate-600">{log.dono}</td>
-                    <td className="px-3.5 py-3 text-center font-mono font-semibold text-amber-700">-{log.volumeTora.toFixed(3)} m³</td>
-                    <td className="px-3.5 py-3 font-bold text-indigo-905 uppercase tracking-tight">{log.produtoSaida}</td>
-                    <td className="px-3.5 py-3 text-right font-mono font-bold text-emerald-850">+{log.volumeSerrado.toFixed(3)} m³</td>
-                    <td className="px-3.5 py-3 text-center">
-                      <span className={`px-2 py-0.5 font-mono font-bold rounded-sm text-[10px] ${
-                        log.rendimento >= 45 
-                          ? "bg-emerald-100/70 text-emerald-900 border border-emerald-200"
-                          : "bg-amber-100/70 text-amber-900 border border-amber-200"
-                      }`}>
-                        {log.rendimento.toFixed(1)}%
-                      </span>
-                    </td>
-                    <td className="px-3.5 py-3 text-center no-print border-l border-slate-50">
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteProcessLog(log.id, log.especie, log.volumeTora)}
-                        className="text-[10px] text-rose-600 hover:text-rose-800 font-bold hover:underline cursor-pointer transition-all px-2 py-1 bg-rose-50/50 hover:bg-rose-100/80 rounded"
-                      >
-                        Estornar
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {filteredProcessLogs.map((log) => {
+                  const isVenda = log.volumeSerrado < 0;
+                  return (
+                    <tr key={log.id} className="hover:bg-slate-50/50 transition">
+                      <td className="px-3.5 py-3 font-semibold text-slate-950 font-mono">{log.dataProcessamento}</td>
+                      <td className="px-3.5 py-3 font-bold text-slate-900">{log.especie}</td>
+                      <td className="px-3.5 py-3 font-mono text-slate-600">{log.dono}</td>
+                      <td className="px-3.5 py-3 text-center font-mono font-semibold text-amber-700">
+                        {isVenda ? "—" : `-${log.volumeTora.toFixed(3)} m³`}
+                      </td>
+                      <td className="px-3.5 py-3 font-bold text-indigo-905 uppercase tracking-tight">{log.produtoSaida}</td>
+                      <td className={`px-3.5 py-3 text-right font-mono font-bold ${isVenda ? "text-rose-650" : "text-emerald-850"}`}>
+                        {isVenda ? "" : "+"}{log.volumeSerrado.toFixed(3)} m³
+                      </td>
+                      <td className="px-3.5 py-3 text-center">
+                        {isVenda ? (
+                          <span className="bg-rose-100 text-rose-800 border border-rose-200 px-2.5 py-0.5 rounded-sm font-bold text-[9px] tracking-wide uppercase inline-block">
+                            SAÍDA / VENDA
+                          </span>
+                        ) : (
+                          <span className={`px-2 py-0.5 font-mono font-bold rounded-sm text-[10px] ${
+                            log.rendimento >= 45 
+                              ? "bg-emerald-100/70 text-emerald-900 border border-emerald-200"
+                              : "bg-amber-100/70 text-amber-900 border border-amber-200"
+                          }`}>
+                            {log.rendimento.toFixed(1)}%
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3.5 py-3 text-center no-print border-l border-slate-50">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteProcessLog(log.id, log.especie, log.volumeTora)}
+                          className="text-[10px] text-rose-600 hover:text-rose-800 font-bold hover:underline cursor-pointer transition-all px-2 py-1 bg-rose-50/50 hover:bg-rose-100/80 rounded"
+                        >
+                          Estornar
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

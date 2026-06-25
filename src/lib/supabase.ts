@@ -58,7 +58,7 @@ export async function fetchAutexListDb(): Promise<Autex[] | null> {
 
     return list;
   } catch (err) {
-    console.error("Erro ao carregar AUTEX do Supabase:", err);
+    console.warn("Erro ao carregar AUTEX do Supabase:", err);
     return null;
   }
 }
@@ -103,7 +103,7 @@ export async function saveAutexInDb(autex: Autex): Promise<boolean> {
 
     return true;
   } catch (err) {
-    console.error(`Erro ao salvar AUTEX ${autex.numero} no Supabase:`, err);
+    console.warn(`Erro ao salvar AUTEX ${autex.numero} no Supabase:`, err);
     return false;
   }
 }
@@ -121,7 +121,7 @@ export async function deleteAutexInDb(autexId: string): Promise<boolean> {
     if (error) throw error;
     return true;
   } catch (err) {
-    console.error(`Erro ao deletar AUTEX ${autexId} no Supabase:`, err);
+    console.warn(`Erro ao deletar AUTEX ${autexId} no Supabase:`, err);
     return false;
   }
 }
@@ -153,7 +153,7 @@ export async function fetchDeductionsDb(): Promise<NfeDeduction[] | null> {
       tipoLancamento: d.tipo_lancamento as "Manual" | "XML"
     }));
   } catch (err) {
-    console.error("Erro ao carregar abatimentos do Supabase:", err);
+    console.warn("Erro ao carregar abatimentos do Supabase:", err);
     return null;
   }
 }
@@ -186,7 +186,7 @@ export async function saveDeductionsInDb(deductions: NfeDeduction[]): Promise<bo
     if (error) throw error;
     return true;
   } catch (err) {
-    console.error("Erro ao salvar abatimentos no Supabase:", err);
+    console.warn("Erro ao salvar abatimentos no Supabase:", err);
     return false;
   }
 }
@@ -204,7 +204,7 @@ export async function deleteDeductionInDb(id: string): Promise<boolean> {
     if (error) throw error;
     return true;
   } catch (err) {
-    console.error("Erro ao excluir faturamento do Supabase:", err);
+    console.warn("Erro ao excluir faturamento do Supabase:", err);
     return false;
   }
 }
@@ -231,7 +231,7 @@ export async function fetchSawmillLogsDb(): Promise<SawmillProcessLog[] | null> 
       dataProcessamento: s.data_processamento
     }));
   } catch (err) {
-    console.error("Erro ao carregar logs da serraria do Supabase:", err);
+    console.warn("Erro ao carregar logs da serraria do Supabase:", err);
     return null;
   }
 }
@@ -259,7 +259,7 @@ export async function saveSawmillLogsInDb(logs: SawmillProcessLog[]): Promise<bo
     if (error) throw error;
     return true;
   } catch (err) {
-    console.error("Erro ao salvar logs da serraria no Supabase:", err);
+    console.warn("Erro ao salvar logs da serraria no Supabase:", err);
     return false;
   }
 }
@@ -277,7 +277,7 @@ export async function deleteSawmillLogInDb(id: string): Promise<boolean> {
     if (error) throw error;
     return true;
   } catch (err) {
-    console.error("Erro ao excluir log da serraria do Supabase:", err);
+    console.warn("Erro ao excluir log da serraria do Supabase:", err);
     return false;
   }
 }
@@ -303,7 +303,7 @@ export async function fetchSecurityLogsDb(): Promise<SecurityLog[] | null> {
       status: s.status as "sucesso" | "erro" | "alerta"
     }));
   } catch (err) {
-    console.error("Erro ao carregar logs de segurança do Supabase:", err);
+    console.warn("Erro ao carregar logs de segurança do Supabase:", err);
     return null;
   }
 }
@@ -327,7 +327,7 @@ export async function saveSecurityLogInDb(log: SecurityLog): Promise<boolean> {
     if (error) throw error;
     return true;
   } catch (err) {
-    console.error("Erro ao registrar log de segurança no Supabase:", err);
+    console.warn("Erro ao registrar log de segurança no Supabase:", err);
     return false;
   }
 }
@@ -355,7 +355,7 @@ export async function fetchUserAccountsDb(): Promise<UserAccount[] | null> {
       permissoes: u.permissoes || []
     }));
   } catch (err) {
-    console.error("Erro ao carregar contas de usuários do Supabase:", err);
+    console.warn("Erro ao carregar contas de usuários do Supabase:", err);
     return null;
   }
 }
@@ -382,7 +382,7 @@ export async function saveUserAccountInDb(user: UserAccount): Promise<boolean> {
     if (error) throw error;
     return true;
   } catch (err) {
-    console.error("Erro ao salvar conta de usuário no Supabase:", err);
+    console.warn("Erro ao salvar conta de usuário no Supabase:", err);
     return false;
   }
 }
@@ -400,7 +400,7 @@ export async function deleteUserAccountInDb(id: string): Promise<boolean> {
     if (error) throw error;
     return true;
   } catch (err) {
-    console.error("Erro ao excluir usuário do Supabase:", err);
+    console.warn("Erro ao excluir usuário do Supabase:", err);
     return false;
   }
 }
