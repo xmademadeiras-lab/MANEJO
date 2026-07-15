@@ -121,6 +121,19 @@ function getBaseProduct(prod: string): string {
   return prod.trim();
 }
 
+function getClientFromProduct(prod: string): string {
+  if (!prod) return "";
+  const idx = prod.indexOf(" (Venda: ");
+  if (idx !== -1) {
+    const endIdx = prod.indexOf(")", idx);
+    if (endIdx !== -1) {
+      return prod.substring(idx + 9, endIdx).trim();
+    }
+    return prod.substring(idx + 9).trim();
+  }
+  return "";
+}
+
 interface SerrariaModuleProps {
   deductions: NfeDeduction[];
   sawmillLogs: SawmillProcessLog[];
@@ -161,6 +174,15 @@ export default function SerrariaModule({
   const [vendaVolume, setVendaVolume] = useState("");
   const [vendaCliente, setVendaCliente] = useState("");
   const [vendaDate, setVendaDate] = useState(() => new Date().toISOString().split("T")[0]);
+
+  // Edit mode states for product exit (venda externa)
+  const [editingLog, setEditingLog] = useState<SawmillProcessLog | null>(null);
+  const [editEspecie, setEditEspecie] = useState("");
+  const [editDono, setEditDono] = useState("");
+  const [editProduto, setEditProduto] = useState("");
+  const [editVolume, setEditVolume] = useState("");
+  const [editCliente, setEditCliente] = useState("");
+  const [editDate, setEditDate] = useState("");
 
   const handleExportSaldosCSV = () => {
     if (currentSaldosList.length === 0) return;
@@ -403,6 +425,93 @@ export default function SerrariaModule({
     ));
   }, [vendaEspecie, vendaDono, sawnStockList]);
 
+  // --- Edit Mode Derived Values ---
+
+  // Calculate stock from all sawmillLogs EXCEPT the one being edited
+  const currentSawnStockBalanceForEdit = useMemo(() => {
+    if (!editingLog || !editEspecie || !editDono || !editProduto) return 0;
+    
+    const logsExceptCurrent = sawmillLogs.filter(l => l.id !== editingLog.id);
+    const list: { especie: string; dono: string; produto: string; volume: number }[] = [];
+    logsExceptCurrent.forEach(log => {
+      const baseProduct = getBaseProduct(log.produtoSaida);
+      const existing = list.find(
+        x => x.especie.toLowerCase().trim() === log.especie.toLowerCase().trim() &&
+             x.dono.toLowerCase().trim() === log.dono.toLowerCase().trim() &&
+             getBaseProduct(x.produto).toLowerCase().trim() === baseProduct.toLowerCase().trim()
+      );
+      if (existing) {
+        existing.volume += log.volumeSerrado;
+      } else {
+        list.push({
+          especie: log.especie,
+          dono: log.dono,
+          produto: baseProduct,
+          volume: log.volumeSerrado
+        });
+      }
+    });
+
+    const match = list.find(
+      x => x.especie.toLowerCase().trim() === editEspecie.toLowerCase().trim() &&
+           x.dono.toLowerCase().trim() === editDono.toLowerCase().trim() &&
+           x.produto.toLowerCase().trim() === editProduto.toLowerCase().trim()
+    );
+    return match ? match.volume : 0;
+  }, [editingLog, editEspecie, editDono, editProduto, sawmillLogs]);
+
+  // Unique species in sawmillLogs that have positive production, or includes currently edited specie
+  const editUniqueSpecies = useMemo(() => {
+    const list = Array.from(new Set(
+      sawmillLogs
+        .filter(l => l.volumeSerrado > 0)
+        .map(l => l.especie)
+    ));
+    if (editingLog && !list.some(s => s.toLowerCase().trim() === editingLog.especie.toLowerCase().trim())) {
+      list.push(editingLog.especie);
+    }
+    return list;
+  }, [sawmillLogs, editingLog]);
+
+  // Unique owners of the selected edit species, or includes currently edited owner
+  const editUniqueOwnersForSpecies = useMemo(() => {
+    if (!editEspecie) return [];
+    const list = Array.from(new Set(
+      sawmillLogs
+        .filter(l => l.volumeSerrado > 0 && l.especie.toLowerCase().trim() === editEspecie.toLowerCase().trim())
+        .map(l => l.dono)
+    ));
+    if (editingLog && 
+        editingLog.especie.toLowerCase().trim() === editEspecie.toLowerCase().trim() && 
+        !list.some(d => d.toLowerCase().trim() === editingLog.dono.toLowerCase().trim())) {
+      list.push(editingLog.dono);
+    }
+    return list;
+  }, [editEspecie, sawmillLogs, editingLog]);
+
+  // Unique products of the selected edit species and owner, or includes currently edited product
+  const editUniqueProductsForSpecAndOwner = useMemo(() => {
+    if (!editEspecie || !editDono) return [];
+    const list = Array.from(new Set(
+      sawmillLogs
+        .filter(
+          l => l.volumeSerrado > 0 &&
+               l.especie.toLowerCase().trim() === editEspecie.toLowerCase().trim() &&
+               l.dono.toLowerCase().trim() === editDono.toLowerCase().trim()
+        )
+        .map(l => getBaseProduct(l.produtoSaida))
+    ));
+    if (editingLog && 
+        editingLog.especie.toLowerCase().trim() === editEspecie.toLowerCase().trim() && 
+        editingLog.dono.toLowerCase().trim() === editDono.toLowerCase().trim()) {
+      const baseProd = getBaseProduct(editingLog.produtoSaida);
+      if (!list.some(p => p.toLowerCase().trim() === baseProd.toLowerCase().trim())) {
+        list.push(baseProd);
+      }
+    }
+    return list;
+  }, [editEspecie, editDono, sawmillLogs, editingLog]);
+
   // Sync owners and products when species changes
   const handleVendaSpeciesChange = (esp: string) => {
     setVendaEspecie(esp);
@@ -531,6 +640,67 @@ export default function SerrariaModule({
       const updated = sawmillLogs.filter(x => x.id !== id);
       saveSawmillLogs(updated);
     }
+  };
+
+  const handleEditVenda = (log: SawmillProcessLog) => {
+    setEditingLog(log);
+    setEditEspecie(log.especie);
+    setEditDono(log.dono);
+    const baseProd = getBaseProduct(log.produtoSaida);
+    setEditProduto(baseProd);
+    setEditVolume(Math.abs(log.volumeSerrado).toString());
+    setEditCliente(getClientFromProduct(log.produtoSaida));
+    setEditDate(log.dataProcessamento);
+  };
+
+  const handleSaveEditVenda = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingLog) return;
+
+    const volVenda = parseFloat(editVolume);
+
+    if (!editEspecie) {
+      alert("Selecione a espécie para a saída.");
+      return;
+    }
+    if (!editDono) {
+      alert("Selecione o proprietário florestal correspondente.");
+      return;
+    }
+    if (!editProduto) {
+      alert("Selecione o produto acabado.");
+      return;
+    }
+    if (isNaN(volVenda) || volVenda <= 0) {
+      alert("Informe um volume de saída válido.");
+      return;
+    }
+
+    if (volVenda > currentSawnStockBalanceForEdit + 0.0001) {
+      alert(`Volume superior ao estoque disponível para este produto (${currentSawnStockBalanceForEdit.toFixed(3)} m³).`);
+      return;
+    }
+
+    const labelCliente = editCliente.trim() ? `Venda: ${editCliente.trim()}` : "Venda Externa";
+    const displayProduct = `${editProduto} (${labelCliente})`;
+
+    const updatedLogs = sawmillLogs.map(log => {
+      if (log.id === editingLog.id) {
+        return {
+          ...log,
+          especie: editEspecie,
+          dono: editDono,
+          volumeSerrado: -volVenda,
+          produtoSaida: displayProduct,
+          dataProcessamento: editDate
+        };
+      }
+      return log;
+    });
+
+    saveSawmillLogs(updatedLogs);
+    setEditingLog(null);
+    alert("Saída de produto atualizada com sucesso!");
   };
 
   const saveSawmillLogs = (list: SawmillProcessLog[]) => {
@@ -1432,13 +1602,25 @@ export default function SerrariaModule({
                         )}
                       </td>
                       <td className="px-3.5 py-3 text-center no-print border-l border-slate-50">
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteProcessLog(log.id, log.especie, log.volumeTora)}
-                          className="text-[10px] text-rose-600 hover:text-rose-800 font-bold hover:underline cursor-pointer transition-all px-2 py-1 bg-rose-50/50 hover:bg-rose-100/80 rounded"
-                        >
-                          Estornar
-                        </button>
+                        <div className="flex items-center justify-center gap-1.5">
+                          {isVenda && (
+                            <button
+                              type="button"
+                              onClick={() => handleEditVenda(log)}
+                              className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold hover:underline cursor-pointer transition-all px-2 py-1 bg-indigo-50/50 hover:bg-indigo-100/80 rounded flex items-center gap-1"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                              <span>Editar</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteProcessLog(log.id, log.especie, log.volumeTora)}
+                            className="text-[10px] text-rose-600 hover:text-rose-800 font-bold hover:underline cursor-pointer transition-all px-2 py-1 bg-rose-50/50 hover:bg-rose-100/80 rounded"
+                          >
+                            Estornar
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1621,6 +1803,204 @@ export default function SerrariaModule({
             
           </div>
 
+        </div>
+      )}
+
+      {/* Edit Sale Modal */}
+      {editingLog && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-xl border border-slate-200 overflow-hidden animate-scale-in">
+            {/* Header */}
+            <div className="bg-indigo-900 text-white px-5 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ArrowUpFromLine className="w-5 h-5" />
+                <h3 className="font-bold text-sm uppercase tracking-wide">Editar Saída (Venda)</h3>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setEditingLog(null)}
+                className="text-white/80 hover:text-white transition cursor-pointer p-1 hover:bg-white/10 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSaveEditVenda} className="p-5 space-y-4 max-h-[85vh] overflow-y-auto text-xs">
+              {/* Espécie */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                  Espécie de Madeira
+                </label>
+                <select
+                  value={editEspecie}
+                  onChange={(e) => {
+                    const esp = e.target.value;
+                    setEditEspecie(esp);
+                    const relatedOwners = sawmillLogs.filter(
+                      l => l.volumeSerrado > 0 && l.especie.toLowerCase().trim() === esp.toLowerCase().trim()
+                    );
+                    if (relatedOwners.length > 0) {
+                      const firstDono = relatedOwners[0].dono;
+                      setEditDono(firstDono);
+                      const relatedProds = sawmillLogs.filter(
+                        l => l.volumeSerrado > 0 &&
+                             l.especie.toLowerCase().trim() === esp.toLowerCase().trim() &&
+                             l.dono.toLowerCase().trim() === firstDono.toLowerCase().trim()
+                      );
+                      if (relatedProds.length > 0) {
+                        setEditProduto(getBaseProduct(relatedProds[0].produtoSaida));
+                      } else {
+                        setEditProduto("");
+                      }
+                    } else {
+                      setEditDono("");
+                      setEditProduto("");
+                    }
+                  }}
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/15 focus:border-indigo-600 transition"
+                  required
+                >
+                  <option value="">-- Selecione uma espécie --</option>
+                  {editUniqueSpecies.map(esp => (
+                    <option key={esp} value={esp}>{esp}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Proprietário / Dono */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                  Proprietário / Dono do lote
+                </label>
+                <select
+                  value={editDono}
+                  onChange={(e) => {
+                    const dono = e.target.value;
+                    setEditDono(dono);
+                    const relatedProds = sawmillLogs.filter(
+                      l => l.volumeSerrado > 0 &&
+                           l.especie.toLowerCase().trim() === editEspecie.toLowerCase().trim() &&
+                           l.dono.toLowerCase().trim() === dono.toLowerCase().trim()
+                    );
+                    if (relatedProds.length > 0) {
+                      setEditProduto(getBaseProduct(relatedProds[0].produtoSaida));
+                    } else {
+                      setEditProduto("");
+                    }
+                  }}
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/15 focus:border-indigo-600 transition"
+                  required
+                >
+                  <option value="">-- Selecione o dono --</option>
+                  {editUniqueOwnersForSpecies.map(dono => (
+                    <option key={dono} value={dono}>{dono}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Produto Acabado */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                  Produto Acabado
+                </label>
+                <select
+                  value={editProduto}
+                  onChange={(e) => setEditProduto(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/15 focus:border-indigo-600 transition"
+                  required
+                >
+                  <option value="">-- Selecione o produto --</option>
+                  {editUniqueProductsForSpecAndOwner.map(prod => (
+                    <option key={prod} value={prod}>{prod}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Balance Badge */}
+              {editEspecie && editDono && editProduto && (
+                <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-xl flex justify-between items-center text-xs text-indigo-950">
+                  <span className="font-semibold text-indigo-800">Saldo disponível para alteração:</span>
+                  <span className="font-mono font-bold text-indigo-950">{currentSawnStockBalanceForEdit.toFixed(3)} m³</span>
+                </div>
+              )}
+
+              {/* Volume */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                  Volume de Saída / Venda (M³)
+                </label>
+                <div className="flex gap-1.5">
+                  <input
+                    type="number"
+                    step="0.001"
+                    placeholder="Ex: 5.420"
+                    value={editVolume}
+                    onChange={(e) => setEditVolume(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/15 focus:border-indigo-600 transition"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (editEspecie && editDono && editProduto) {
+                        setEditVolume(currentSawnStockBalanceForEdit.toString());
+                      }
+                    }}
+                    className="px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 font-bold text-[9px] uppercase transition border border-indigo-200 rounded-lg cursor-pointer"
+                    disabled={!editEspecie || !editDono || !editProduto}
+                  >
+                    Tudo
+                  </button>
+                </div>
+              </div>
+
+              {/* Cliente */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                  Cliente / Destinatário (Opcional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: Madeireira Silva Ltda"
+                  value={editCliente}
+                  onChange={(e) => setEditCliente(e.target.value)}
+                  className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/15 focus:border-indigo-600 transition"
+                />
+              </div>
+
+              {/* Data */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
+                  Data da Saída
+                </label>
+                <input
+                  type="date"
+                  value={editDate}
+                  onChange={(e) => setEditDate(e.target.value)}
+                  className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/15 focus:border-indigo-600 transition font-mono text-slate-800"
+                  required
+                />
+              </div>
+
+              {/* Form Buttons */}
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingLog(null)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl text-xs transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 bg-indigo-900 hover:bg-indigo-850 text-white font-bold rounded-xl text-xs transition shadow-sm cursor-pointer"
+                >
+                  Salvar Alterações
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
