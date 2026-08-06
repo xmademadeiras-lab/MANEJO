@@ -19,11 +19,15 @@ import {
   Scale,
   Gauge,
   CheckCircle2,
-  Trash2
+  Trash2,
+  Edit2,
+  X,
+  ArrowRight
 } from "lucide-react";
 
 interface LogisticaModuleProps {
   deductions: NfeDeduction[];
+  onSaveDeductions?: (list: NfeDeduction[], description?: string) => void;
 }
 
 interface CustomTruckData {
@@ -34,7 +38,7 @@ interface CustomTruckData {
   capacidadeMaxM3: number;
 }
 
-export default function LogisticaModule({ deductions }: LogisticaModuleProps) {
+export default function LogisticaModule({ deductions, onSaveDeductions }: LogisticaModuleProps) {
   // Local storage for registered trucks list
   const [trucksList, setTrucksList] = useState<CustomTruckData[]>([]);
 
@@ -47,6 +51,26 @@ export default function LogisticaModule({ deductions }: LogisticaModuleProps) {
   // Filters
   const [truckFilter, setTruckFilter] = useState("");
   const [searchPlaca, setSearchPlaca] = useState("");
+
+  // Edit State for Fleet Truck Directory
+  const [editingTruck, setEditingTruck] = useState<(CustomTruckData & { isRegistered?: boolean }) | null>(null);
+  const [editTruckPlaca, setEditTruckPlaca] = useState("");
+  const [editTruckModelo, setEditTruckModelo] = useState("");
+  const [editTruckMotorista, setEditTruckMotorista] = useState("");
+  const [editTruckCapacidade, setEditTruckCapacidade] = useState("45");
+  const [editUpdateHistoricalDeductions, setEditUpdateHistoricalDeductions] = useState(true);
+
+  // Edit State for Specific Shipment / Trip Plate
+  const [editingShipment, setEditingShipment] = useState<{
+    numeroNfe: string;
+    placaCaminhao: string;
+    dono: string;
+    dataEmissao: string;
+    volume: number;
+  } | null>(null);
+  const [editShipmentNewPlaca, setEditShipmentNewPlaca] = useState("");
+  const [editShipmentSelectedFleetPlaca, setEditShipmentSelectedFleetPlaca] = useState("");
+  const [editShipmentScope, setEditShipmentScope] = useState<"single" | "all">("single");
 
   // Loading configured trucks from memory
   useEffect(() => {
@@ -114,6 +138,151 @@ export default function LogisticaModule({ deductions }: LogisticaModuleProps) {
       const updated = trucksList.filter(t => t.id !== id);
       saveTrucks(updated);
     }
+  };
+
+  // Handlers for Editing Fleet Vehicle
+  const handleStartEditTruck = (truck: CustomTruckData & { isRegistered?: boolean }) => {
+    setEditingTruck(truck);
+    setEditTruckPlaca(truck.placa);
+    setEditTruckModelo(truck.modelo || "");
+    setEditTruckMotorista(truck.motorista || "");
+    setEditTruckCapacidade(truck.capacidadeMaxM3 ? truck.capacidadeMaxM3.toString() : "45");
+    setEditUpdateHistoricalDeductions(true);
+  };
+
+  const handleSaveEditTruck = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTruck) return;
+
+    const cleanedOldPlaca = editingTruck.placa.trim().toUpperCase();
+    const cleanedNewPlaca = editTruckPlaca.trim().toUpperCase();
+
+    if (!cleanedNewPlaca) {
+      alert("A placa ou identificação do veículo não pode ficar em branco.");
+      return;
+    }
+
+    // Check if new plate collides with a DIFFERENT registered truck
+    const plateCollision = trucksList.some(
+      t => t.id !== editingTruck.id && t.placa.toUpperCase() === cleanedNewPlaca
+    );
+    if (plateCollision) {
+      alert(`A placa "${cleanedNewPlaca}" já está cadastrada para outro veículo.`);
+      return;
+    }
+
+    const nCap = parseFloat(editTruckCapacidade) || 45;
+
+    let updatedList: CustomTruckData[];
+    if (editingTruck.isRegistered) {
+      updatedList = trucksList.map(t => {
+        if (t.id === editingTruck.id) {
+          return {
+            ...t,
+            placa: cleanedNewPlaca,
+            modelo: editTruckModelo.trim() || "Caminhão não especificado",
+            motorista: editTruckMotorista.trim() || "Motorista não informado",
+            capacidadeMaxM3: nCap
+          };
+        }
+        return t;
+      });
+    } else {
+      // Registering an external truck that was edit-saved
+      const newRegisteredTruck: CustomTruckData = {
+        id: "trk_" + Math.random().toString(36).substr(2, 9),
+        placa: cleanedNewPlaca,
+        modelo: editTruckModelo.trim() || "Caminhão Externo",
+        motorista: editTruckMotorista.trim() || "Não Cadastrado",
+        capacidadeMaxM3: nCap
+      };
+      updatedList = [...trucksList, newRegisteredTruck];
+    }
+
+    saveTrucks(updatedList);
+
+    // Update historical deductions if option selected and plate changed
+    if (editUpdateHistoricalDeductions && onSaveDeductions && cleanedOldPlaca !== cleanedNewPlaca) {
+      const updatedDeductions = deductions.map(d => {
+        if ((d.placaCaminhao || "Não Informado").trim().toUpperCase() === cleanedOldPlaca) {
+          return {
+            ...d,
+            placaCaminhao: cleanedNewPlaca
+          };
+        }
+        return d;
+      });
+      onSaveDeductions(
+        updatedDeductions,
+        `Alteração da placa do veículo de "${cleanedOldPlaca}" para "${cleanedNewPlaca}"`
+      );
+    }
+
+    setEditingTruck(null);
+    alert("Dados e placa do veículo atualizados com sucesso!");
+  };
+
+  // Handlers for Editing Trip / Shipment Vehicle Plate
+  const handleStartEditShipment = (trip: {
+    numeroNfe: string;
+    placaCaminhao: string;
+    dono: string;
+    dataEmissao: string;
+    volume: number;
+  }) => {
+    setEditingShipment(trip);
+    setEditShipmentNewPlaca(trip.placaCaminhao);
+    const matchedInFleet = trucksList.find(t => t.placa.toUpperCase() === trip.placaCaminhao.toUpperCase());
+    setEditShipmentSelectedFleetPlaca(matchedInFleet ? matchedInFleet.placa : "custom");
+    setEditShipmentScope("single");
+  };
+
+  const handleSaveEditShipment = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingShipment) return;
+
+    const cleanedOldPlaca = editingShipment.placaCaminhao.trim().toUpperCase();
+    const cleanedNewPlaca = editShipmentNewPlaca.trim().toUpperCase();
+
+    if (!cleanedNewPlaca) {
+      alert("A placa ou identificação do veículo é obrigatória.");
+      return;
+    }
+
+    if (!onSaveDeductions) {
+      alert("Função de salvamento de faturamento não configurada.");
+      return;
+    }
+
+    const updatedDeductions = deductions.map(d => {
+      const dNfe = (d.numeroNfe || "S/N").trim();
+      const dPlaca = (d.placaCaminhao || "Não Informado").trim().toUpperCase();
+
+      if (editShipmentScope === "single") {
+        if (dNfe === editingShipment.numeroNfe.trim() && dPlaca === cleanedOldPlaca) {
+          return {
+            ...d,
+            placaCaminhao: cleanedNewPlaca
+          };
+        }
+      } else {
+        if (dPlaca === cleanedOldPlaca) {
+          return {
+            ...d,
+            placaCaminhao: cleanedNewPlaca
+          };
+        }
+      }
+      return d;
+    });
+
+    onSaveDeductions(
+      updatedDeductions,
+      `Edição de placa da NF #${editingShipment.numeroNfe} para "${cleanedNewPlaca}"`
+    );
+
+    setEditingShipment(null);
+    alert("Placa do veículo atualizada com sucesso nas viagens!");
   };
 
   // Analytical Calculations from Actual Deductions
@@ -394,16 +563,27 @@ export default function LogisticaModule({ deductions }: LogisticaModuleProps) {
                       </p>
                     </div>
 
-                    {truck.isRegistered && (
+                    <div className="flex items-center gap-1">
                       <button
                         type="button"
-                        onClick={() => handleDeleteTruck(truck.id, truck.placa)}
-                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition"
-                        title="Excluir cadastro"
+                        onClick={() => handleStartEditTruck(truck)}
+                        className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg cursor-pointer transition flex items-center gap-1 text-[10px] font-bold"
+                        title="Editar placa e dados do veículo"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Edit2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Editar</span>
                       </button>
-                    )}
+                      {truck.isRegistered && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteTruck(truck.id, truck.placa)}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition"
+                          title="Excluir cadastro"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Volume transported, average and voyages counts */}
@@ -586,13 +766,16 @@ export default function LogisticaModule({ deductions }: LogisticaModuleProps) {
                   <th className="px-4 py-3">Espécies Florestais</th>
                   <th className="px-4 py-3 text-right">Volume Total Escoado</th>
                   <th className="px-4 py-3 text-center">Status</th>
+                  <th className="px-4 py-3 text-center">Ação</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {shipmentsList.map((trip, i) => (
                   <tr key={i} className="hover:bg-slate-50/50 transition">
                     <td className="px-4 py-3 font-mono font-bold text-slate-900">NF #{trip.numeroNfe}</td>
-                    <td className="px-4 py-3 font-mono text-slate-650">{trip.placaCaminhao}</td>
+                    <td className="px-4 py-3 font-mono font-bold text-slate-800 bg-slate-50/60 rounded px-2 py-1 inline-block my-2">
+                      {trip.placaCaminhao}
+                    </td>
                     <td className="px-4 py-3 text-slate-600 font-semibold">{trip.dono}</td>
                     <td className="px-4 py-3 text-center font-mono text-slate-500">{trip.dataEmissao}</td>
                     <td className="px-4 py-3 text-slate-500 font-medium truncate max-w-[200px]" title={trip.especiesFormatted}>
@@ -606,6 +789,17 @@ export default function LogisticaModule({ deductions }: LogisticaModuleProps) {
                         Entregue
                       </span>
                     </td>
+                    <td className="px-4 py-3 text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleStartEditShipment(trip)}
+                        className="px-2.5 py-1 text-[10px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 rounded-lg transition flex items-center gap-1 cursor-pointer mx-auto"
+                        title="Editar placa do veículo de transporte nesta viagem"
+                      >
+                        <Edit2 className="w-3 h-3 text-emerald-700" />
+                        <span>Editar Placa</span>
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -613,6 +807,267 @@ export default function LogisticaModule({ deductions }: LogisticaModuleProps) {
           </div>
         )}
       </div>
+
+      {/* --- MODAL 1: EDIT FLEET TRUCK DIRECTORY --- */}
+      {editingTruck && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-xl border border-slate-200 overflow-hidden animate-scale-in">
+            {/* Modal Header */}
+            <div className="bg-slate-900 text-white px-5 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Truck className="w-5 h-5 text-emerald-400" />
+                <h3 className="font-extrabold text-sm tracking-tight">Editar Cadastro do Veículo</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingTruck(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleSaveEditTruck} className="p-5 space-y-4">
+              
+              {/* Placa Field */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-500 tracking-wider mb-1">
+                  Placa / Identificação do Veículo *
+                </label>
+                <input
+                  type="text"
+                  required
+                  maxLength={20}
+                  value={editTruckPlaca}
+                  onChange={(e) => setEditTruckPlaca(e.target.value)}
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono text-sm font-bold uppercase text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition"
+                  placeholder="EX: MDF-2026"
+                />
+              </div>
+
+              {/* Modelo Field */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-500 tracking-wider mb-1">
+                  Modelo do Caminhão
+                </label>
+                <input
+                  type="text"
+                  value={editTruckModelo}
+                  onChange={(e) => setEditTruckModelo(e.target.value)}
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition"
+                  placeholder="Ex: Scania R440, Volvo"
+                />
+              </div>
+
+              {/* Motorista Field */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-500 tracking-wider mb-1">
+                  Nome do Motorista
+                </label>
+                <input
+                  type="text"
+                  value={editTruckMotorista}
+                  onChange={(e) => setEditTruckMotorista(e.target.value)}
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition"
+                  placeholder="Ex: Carlos Ribeiro"
+                />
+              </div>
+
+              {/* Capacidade Field */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-500 tracking-wider mb-1">
+                  Capacidade Estimada de Carga (m³)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.1"
+                  required
+                  value={editTruckCapacidade}
+                  onChange={(e) => setEditTruckCapacidade(e.target.value)}
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition"
+                />
+              </div>
+
+              {/* Checkbox Retroactive Updates */}
+              {editingTruck.placa.trim().toUpperCase() !== editTruckPlaca.trim().toUpperCase() && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-1.5">
+                  <label className="flex items-start gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={editUpdateHistoricalDeductions}
+                      onChange={(e) => setEditUpdateHistoricalDeductions(e.target.checked)}
+                      className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <span className="text-xs text-amber-900 font-medium leading-tight">
+                      Atualizar histórico de faturamento: alterar os registros das notas/viagens anteriores com a placa antiga <strong>[{editingTruck.placa}]</strong> para a nova placa.
+                    </span>
+                  </label>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingTruck(null)}
+                  className="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-xs flex items-center gap-1.5"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                  <span>Salvar Alterações</span>
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL 2: EDIT SHIPMENT / TRIP LICENSE PLATE --- */}
+      {editingShipment && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-xl border border-slate-200 overflow-hidden animate-scale-in">
+            
+            {/* Modal Header */}
+            <div className="bg-slate-900 text-white px-5 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Edit2 className="w-5 h-5 text-emerald-400" />
+                <h3 className="font-extrabold text-sm tracking-tight">Editar Placa do Veículo na Viagem</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingShipment(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleSaveEditShipment} className="p-5 space-y-4">
+              
+              {/* Trip Context Card */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1 text-xs">
+                <div className="flex justify-between items-center font-bold text-slate-800">
+                  <span>Nota Fiscal: <strong className="font-mono text-emerald-800">NF #{editingShipment.numeroNfe}</strong></span>
+                  <span className="text-slate-500 font-mono text-[11px]">{editingShipment.dataEmissao}</span>
+                </div>
+                <div className="flex justify-between text-[11px] text-slate-600">
+                  <span>Dono: <strong>{editingShipment.dono}</strong></span>
+                  <span className="font-mono font-bold text-rose-600">-{editingShipment.volume.toFixed(3)} m³</span>
+                </div>
+                <div className="pt-1.5 border-t border-slate-200/80 flex items-center gap-2 text-xs">
+                  <span className="text-slate-500">Placa Atual:</span>
+                  <span className="font-mono font-bold px-2 py-0.5 bg-amber-100 text-amber-900 rounded border border-amber-200">
+                    {editingShipment.placaCaminhao}
+                  </span>
+                </div>
+              </div>
+
+              {/* Select from registered fleet dropdown */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-500 tracking-wider mb-1">
+                  Selecionar da Frota Cadastrada
+                </label>
+                <select
+                  value={editShipmentSelectedFleetPlaca}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setEditShipmentSelectedFleetPlaca(val);
+                    if (val && val !== "custom") {
+                      setEditShipmentNewPlaca(val);
+                    }
+                  }}
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition"
+                >
+                  <option value="custom">— Digitar Placa Personalizada —</option>
+                  {trucksList.map(truck => (
+                    <option key={truck.id} value={truck.placa}>
+                      [{truck.placa}] {truck.modelo} - {truck.motorista}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* New Placa Text Input */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-500 tracking-wider mb-1">
+                  Nova Placa do Veículo Transportador *
+                </label>
+                <input
+                  type="text"
+                  required
+                  maxLength={20}
+                  value={editShipmentNewPlaca}
+                  onChange={(e) => {
+                    setEditShipmentNewPlaca(e.target.value);
+                    setEditShipmentSelectedFleetPlaca("custom");
+                  }}
+                  placeholder="EX: MDF-2026"
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono text-sm font-bold uppercase text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition"
+                />
+              </div>
+
+              {/* Scope Radio Group */}
+              <div className="space-y-1.5 pt-1">
+                <label className="block text-[10px] font-bold uppercase text-slate-500 tracking-wider">
+                  Escopo da Alteração
+                </label>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 p-2.5 border rounded-xl cursor-pointer hover:bg-slate-50 transition text-xs font-medium text-slate-800">
+                    <input
+                      type="radio"
+                      name="editScope"
+                      value="single"
+                      checked={editShipmentScope === "single"}
+                      onChange={() => setEditShipmentScope("single")}
+                      className="text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <span>Alterar apenas nesta nota/viagem específica (NF #{editingShipment.numeroNfe})</span>
+                  </label>
+                  <label className="flex items-center gap-2 p-2.5 border rounded-xl cursor-pointer hover:bg-slate-50 transition text-xs font-medium text-slate-800">
+                    <input
+                      type="radio"
+                      name="editScope"
+                      value="all"
+                      checked={editShipmentScope === "all"}
+                      onChange={() => setEditShipmentScope("all")}
+                      className="text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <span>Alterar em TODOS os lançamentos registrados com a placa antiga [{editingShipment.placaCaminhao}]</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingShipment(null)}
+                  className="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-xs flex items-center gap-1.5"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                  <span>Gravar Nova Placa</span>
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
 
     </div>
   );

@@ -2886,6 +2886,7 @@ export default function App() {
           {activeTab === "logistica" && (
             <LogisticaModule 
               deductions={deductions}
+              onSaveDeductions={saveDeductions}
             />
           )}
 
