@@ -24,9 +24,11 @@ import {
   X,
   ArrowRight,
   Warehouse,
-  Factory
+  Factory,
+  PlusCircle
 } from "lucide-react";
 import { getRegisteredSerrarias, getRegisteredPatios } from "../lib/sawmillsData";
+import ManagePatiosModal from "./ManagePatiosModal";
 
 interface LogisticaModuleProps {
   deductions: NfeDeduction[];
@@ -48,6 +50,8 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
   // Directory of sawmills and patios
   const [registeredSerrarias, setRegisteredSerrarias] = useState<string[]>([]);
   const [registeredPatios, setRegisteredPatios] = useState<string[]>([]);
+  const [isManagePatiosOpen, setIsManagePatiosOpen] = useState(false);
+  const [managePatiosTab, setManagePatiosTab] = useState<"patios" | "serrarias">("patios");
 
   // Form state for registering new carrier truck
   const [newPlaca, setNewPlaca] = useState("");
@@ -85,10 +89,20 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
   const [editShipmentSelectedFleetPlaca, setEditShipmentSelectedFleetPlaca] = useState("");
   const [editShipmentScope, setEditShipmentScope] = useState<"single" | "all">("single");
 
-  // Loading configured trucks and directories
-  useEffect(() => {
+  const refreshPatiosAndSerrarias = () => {
     setRegisteredSerrarias(getRegisteredSerrarias());
     setRegisteredPatios(getRegisteredPatios());
+  };
+
+  // Loading configured trucks and directories
+  useEffect(() => {
+    refreshPatiosAndSerrarias();
+
+    const handleUpdated = () => {
+      refreshPatiosAndSerrarias();
+    };
+
+    window.addEventListener("patios_serrarias_updated", handleUpdated);
 
     const saved = localStorage.getItem("logistica_trucks_directory");
     if (saved) {
@@ -107,6 +121,10 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
       setTrucksList(defaults);
       localStorage.setItem("logistica_trucks_directory", JSON.stringify(defaults));
     }
+
+    return () => {
+      window.removeEventListener("patios_serrarias_updated", handleUpdated);
+    };
   }, []);
 
   // Save trucks list to local storage
@@ -1106,10 +1124,22 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
               {/* Edit Pátio de Descarregamento */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[10px] font-bold uppercase text-slate-500 tracking-wider mb-1 flex items-center gap-1">
-                    <Warehouse className="w-3 h-3 text-amber-600" />
-                    <span>Pátio de Descarregamento</span>
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[10px] font-bold uppercase text-slate-500 tracking-wider flex items-center gap-1">
+                      <Warehouse className="w-3 h-3 text-amber-600" />
+                      <span>Pátio de Descarregamento</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setManagePatiosTab("patios");
+                        setIsManagePatiosOpen(true);
+                      }}
+                      className="text-[9px] font-bold text-amber-700 hover:text-amber-900 underline flex items-center gap-0.5 cursor-pointer"
+                    >
+                      <PlusCircle className="w-3 h-3" /> + Gerenciar
+                    </button>
+                  </div>
                   <select
                     value={registeredPatios.includes(editShipmentNewPatio) ? editShipmentNewPatio : "custom"}
                     onChange={(e) => {
@@ -1136,10 +1166,22 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
 
                 {/* Edit Serraria Destino */}
                 <div>
-                  <label className="block text-[10px] font-bold uppercase text-slate-500 tracking-wider mb-1 flex items-center gap-1">
-                    <Factory className="w-3 h-3 text-emerald-600" />
-                    <span>Serraria de Destino</span>
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[10px] font-bold uppercase text-slate-500 tracking-wider flex items-center gap-1">
+                      <Factory className="w-3 h-3 text-emerald-600" />
+                      <span>Serraria de Destino</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setManagePatiosTab("serrarias");
+                        setIsManagePatiosOpen(true);
+                      }}
+                      className="text-[9px] font-bold text-emerald-700 hover:text-emerald-900 underline flex items-center gap-0.5 cursor-pointer"
+                    >
+                      <PlusCircle className="w-3 h-3" /> + Gerenciar
+                    </button>
+                  </div>
                   <select
                     value={registeredSerrarias.includes(editShipmentNewSerraria) ? editShipmentNewSerraria : "custom"}
                     onChange={(e) => {
@@ -1218,6 +1260,13 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
           </div>
         </div>
       )}
+
+      <ManagePatiosModal
+        isOpen={isManagePatiosOpen}
+        onClose={() => setIsManagePatiosOpen(false)}
+        initialTab={managePatiosTab}
+        onUpdated={refreshPatiosAndSerrarias}
+      />
 
     </div>
   );

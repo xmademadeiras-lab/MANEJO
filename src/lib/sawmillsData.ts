@@ -1,4 +1,9 @@
 /**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/**
  * Directory and storage helpers for Sawmills (Serrarias) and Yards (Pátios de Descarregamento)
  */
 
@@ -33,9 +38,21 @@ export function saveRegisteredSerrarias(list: string[]): void {
   try {
     const cleanList = Array.from(new Set(list.map(s => s.trim()).filter(Boolean)));
     localStorage.setItem("manejo_serrarias_directory", JSON.stringify(cleanList));
+    window.dispatchEvent(new Event("patios_serrarias_updated"));
   } catch (e) {
     console.error("Error saving serrarias directory:", e);
   }
+}
+
+export function addRegisteredSerraria(name: string): string[] {
+  const current = getRegisteredSerrarias();
+  const clean = name.trim();
+  if (clean && !current.some(s => s.toLowerCase() === clean.toLowerCase())) {
+    const updated = [...current, clean];
+    saveRegisteredSerrarias(updated);
+    return updated;
+  }
+  return current;
 }
 
 export function getRegisteredPatios(): string[] {
@@ -55,7 +72,19 @@ export function saveRegisteredPatios(list: string[]): void {
   try {
     const cleanList = Array.from(new Set(list.map(p => p.trim()).filter(Boolean)));
     localStorage.setItem("manejo_patios_directory", JSON.stringify(cleanList));
+    window.dispatchEvent(new Event("patios_serrarias_updated"));
   } catch (e) {
     console.error("Error saving patios directory:", e);
   }
+}
+
+export function addRegisteredPatio(name: string): string[] {
+  const current = getRegisteredPatios();
+  const clean = name.trim();
+  if (clean && !current.some(p => p.toLowerCase() === clean.toLowerCase())) {
+    const updated = [...current, clean];
+    saveRegisteredPatios(updated);
+    return updated;
+  }
+  return current;
 }

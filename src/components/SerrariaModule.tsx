@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { NfeDeduction, SawmillProcessLog } from "../types";
 import { 
   Factory, 
@@ -28,8 +28,12 @@ import {
   Edit2,
   Check,
   FileText,
-  Wrench
+  Wrench,
+  Warehouse,
+  PlusCircle
 } from "lucide-react";
+import { getRegisteredPatios, getRegisteredSerrarias } from "../lib/sawmillsData";
+import ManagePatiosModal from "./ManagePatiosModal";
 
 interface ImportedSerrariaSaldo {
   id: string;
@@ -146,10 +150,18 @@ export default function SerrariaModule({
   sawmillLogs,
   onSaveSawmillLogs
 }: SerrariaModuleProps) {
+  // Patios and Sawmills directory
+  const [registeredPatios, setRegisteredPatios] = useState<string[]>([]);
+  const [registeredSerrarias, setRegisteredSerrarias] = useState<string[]>([]);
+  const [isManagePatiosOpen, setIsManagePatiosOpen] = useState(false);
+  const [managePatiosTab, setManagePatiosTab] = useState<"patios" | "serrarias">("patios");
+
   // Filters
   const [searchFilter, setSearchFilter] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
   const [productFilter, setProductFilter] = useState("");
+  const [patioFilter, setPatioFilter] = useState("");
+  const [serrariaFilter, setSerrariaFilter] = useState("");
 
   // Sub tab navigation inside SerrariaModule
   const [serrariaSubTab, setSerrariaSubTab] = useState<"producao" | "saldos">("producao");
@@ -163,10 +175,37 @@ export default function SerrariaModule({
   // Form states for manual process registration (desdobro)
   const [serrariaEspecie, setSerrariaEspecie] = useState("");
   const [serrariaDono, setSerrariaDono] = useState("");
+  const [serrariaPatioOrigem, setSerrariaPatioOrigem] = useState("");
+  const [serrariaNomeUnidade, setSerrariaNomeUnidade] = useState("");
   const [serrariaVolTora, setSerrariaVolTora] = useState("");
   const [serrariaVolSerrado, setSerrariaVolSerrado] = useState("");
   const [serrariaProduto, setSerrariaProduto] = useState("Serrado");
   const [serrariaDate, setSerrariaDate] = useState(() => new Date().toISOString().split("T")[0]);
+
+  // Load directories and listen to updates
+  const refreshPatiosAndSerrarias = () => {
+    const p = getRegisteredPatios();
+    const s = getRegisteredSerrarias();
+    setRegisteredPatios(p);
+    setRegisteredSerrarias(s);
+    if (!serrariaPatioOrigem && p.length > 0) {
+      setSerrariaPatioOrigem(p[0]);
+    }
+    if (!serrariaNomeUnidade && s.length > 0) {
+      setSerrariaNomeUnidade(s[0]);
+    }
+  };
+
+  useEffect(() => {
+    refreshPatiosAndSerrarias();
+    const handleUpdate = () => {
+      refreshPatiosAndSerrarias();
+    };
+    window.addEventListener("patios_serrarias_updated", handleUpdate);
+    return () => {
+      window.removeEventListener("patios_serrarias_updated", handleUpdate);
+    };
+  }, []);
 
   // Form states for Beneficiamento (plainamento de madeira serrada -> beneficiada)
   const [benEspecie, setBenEspecie] = useState("");
@@ -208,6 +247,8 @@ export default function SerrariaModule({
 
     const headers = [
       "DATA_OPERACAO",
+      "PATIO_ORIGEM",
+      "SERRARIA_UNIDADE",
       "ESPECIE_POPULAR",
       "NOME_CIENTIFICO",
       "PROPRIETARIO_DONO",
@@ -225,6 +266,8 @@ export default function SerrariaModule({
 
     logsToExport.forEach(log => {
       const dataOp = log.dataProcessamento || "";
+      const patioOp = (log.patio || "").replace(/;/g, ",");
+      const serrariaOp = (log.serraria || "").replace(/;/g, ",");
       const esp = (log.especie || "").replace(/;/g, ",");
       const cient = (getScientificName(log.especie) || "").replace(/;/g, ",");
       const dono = (log.dono || "").replace(/;/g, ",");
@@ -251,6 +294,8 @@ export default function SerrariaModule({
 
       rows.push([
         dataOp,
+        patioOp,
+        serrariaOp,
         esp,
         cient,
         dono,
@@ -270,6 +315,8 @@ export default function SerrariaModule({
     rows.push(""); // blank line
     rows.push([
       "TOTAIS GERAIS ACUMULADOS",
+      "",
+      "",
       "",
       "",
       "",
@@ -319,9 +366,11 @@ export default function SerrariaModule({
   };
 
   // Trigger form filling from pátio list click
-  const handleQuickDesdobro = (especie: string, dono: string, maxVol: number) => {
+  const handleQuickDesdobro = (especie: string, dono: string, maxVol: number, patio?: string, serraria?: string) => {
     setSerrariaEspecie(especie);
     setSerrariaDono(dono);
+    if (patio) setSerrariaPatioOrigem(patio);
+    if (serraria) setSerrariaNomeUnidade(serraria);
     setSerrariaVolTora(maxVol.toFixed(3));
     // Pre-fill a standard 45% yield
     setSerrariaVolSerrado((maxVol * 0.45).toFixed(3));
@@ -335,19 +384,26 @@ export default function SerrariaModule({
 
   // 1. Dynamic Raw Logs calculation (Received logs = all deductions from management plan)
   const receivedBySpecAndOwner = useMemo(() => {
-    const list: { especie: string; dono: string; volume: number; numLaunches: number }[] = [];
+    const list: { patio: string; serraria: string; especie: string; dono: string; volume: number; numLaunches: number }[] = [];
     deductions.forEach(ded => {
       const cleanEsp = ded.especie.trim();
       const cleanDono = ded.dono.trim();
+      const cleanPatio = (ded.patioDescarregamento || registeredPatios[0] || "Pátio 01 (Principal)").trim();
+      const cleanSerraria = (ded.serrariaDestino || registeredSerrarias[0] || "Serraria Principal (Matriz)").trim();
+
       const existing = list.find(
         x => x.especie.toLowerCase().trim() === cleanEsp.toLowerCase().trim() &&
-             x.dono.toLowerCase().trim() === cleanDono.toLowerCase().trim()
+             x.dono.toLowerCase().trim() === cleanDono.toLowerCase().trim() &&
+             x.patio.toLowerCase().trim() === cleanPatio.toLowerCase().trim() &&
+             x.serraria.toLowerCase().trim() === cleanSerraria.toLowerCase().trim()
       );
       if (existing) {
         existing.volume += ded.volume;
         existing.numLaunches += 1;
       } else {
         list.push({
+          patio: cleanPatio,
+          serraria: cleanSerraria,
           especie: cleanEsp,
           dono: cleanDono,
           volume: ded.volume,
@@ -356,14 +412,23 @@ export default function SerrariaModule({
       }
     });
     return list;
-  }, [deductions]);
+  }, [deductions, registeredPatios, registeredSerrarias]);
 
   // 2. Processed logs grouped by key
   const processedBySpecAndOwner = useMemo(() => {
     const map: Record<string, number> = {};
     sawmillLogs.forEach(log => {
-      const key = `${log.especie.toLowerCase().trim()}||${log.dono.toLowerCase().trim()}`;
-      map[key] = (map[key] || 0) + log.volumeTora;
+      const patio = (log.patio || "").toLowerCase().trim();
+      const serraria = (log.serraria || "").toLowerCase().trim();
+      const keyFull = `${log.especie.toLowerCase().trim()}||${log.dono.toLowerCase().trim()}||${patio}||${serraria}`;
+      const keyPatio = `${log.especie.toLowerCase().trim()}||${log.dono.toLowerCase().trim()}||${patio}`;
+      const keyGeneric = `${log.especie.toLowerCase().trim()}||${log.dono.toLowerCase().trim()}`;
+      
+      map[keyFull] = (map[keyFull] || 0) + log.volumeTora;
+      if (patio) {
+        map[keyPatio] = (map[keyPatio] || 0) + log.volumeTora;
+      }
+      map[keyGeneric] = (map[keyGeneric] || 0) + log.volumeTora;
     });
     return map;
   }, [sawmillLogs]);
@@ -371,8 +436,11 @@ export default function SerrariaModule({
   // 3. Yard Stock array (Pátio de Toras)
   const patioStockList = useMemo(() => {
     return receivedBySpecAndOwner.map(item => {
-      const key = `${item.especie.toLowerCase().trim()}||${item.dono.toLowerCase().trim()}`;
-      const processed = processedBySpecAndOwner[key] || 0;
+      const keyFull = `${item.especie.toLowerCase().trim()}||${item.dono.toLowerCase().trim()}||${item.patio.toLowerCase().trim()}||${item.serraria.toLowerCase().trim()}`;
+      const keyPatio = `${item.especie.toLowerCase().trim()}||${item.dono.toLowerCase().trim()}||${item.patio.toLowerCase().trim()}`;
+      const keyGeneric = `${item.especie.toLowerCase().trim()}||${item.dono.toLowerCase().trim()}`;
+      
+      const processed = processedBySpecAndOwner[keyFull] ?? processedBySpecAndOwner[keyPatio] ?? processedBySpecAndOwner[keyGeneric] ?? 0;
       const saldo = Math.max(0, item.volume - processed);
       return {
         ...item,
@@ -384,20 +452,29 @@ export default function SerrariaModule({
 
   // Lists of unique values for dropdowns
   const uniquePatioSpecies = useMemo(() => {
-    return Array.from(new Set(patioStockList.map(x => x.especie)));
-  }, [patioStockList]);
+    const pool = serrariaPatioOrigem
+      ? patioStockList.filter(x => x.patio.toLowerCase().trim() === serrariaPatioOrigem.toLowerCase().trim())
+      : patioStockList;
+    return Array.from(new Set(pool.map(x => x.especie)));
+  }, [patioStockList, serrariaPatioOrigem]);
 
   const uniquePatioOwnersForSelectedSpecies = useMemo(() => {
     if (!serrariaEspecie) return [];
-    return patioStockList
-      .filter(x => x.especie.toLowerCase().trim() === serrariaEspecie.toLowerCase().trim())
-      .map(x => x.dono);
-  }, [serrariaEspecie, patioStockList]);
+    let pool = patioStockList.filter(x => x.especie.toLowerCase().trim() === serrariaEspecie.toLowerCase().trim());
+    if (serrariaPatioOrigem) {
+      pool = pool.filter(x => x.patio.toLowerCase().trim() === serrariaPatioOrigem.toLowerCase().trim());
+    }
+    return Array.from(new Set(pool.map(x => x.dono)));
+  }, [serrariaEspecie, serrariaPatioOrigem, patioStockList]);
 
   // Sync owners list when species changes
   const handleSpeciesChange = (esp: string) => {
     setSerrariaEspecie(esp);
-    const related = patioStockList.filter(x => x.especie.toLowerCase().trim() === esp.toLowerCase().trim());
+    let related = patioStockList.filter(x => x.especie.toLowerCase().trim() === esp.toLowerCase().trim());
+    if (serrariaPatioOrigem) {
+      const inPatio = related.filter(x => x.patio.toLowerCase().trim() === serrariaPatioOrigem.toLowerCase().trim());
+      if (inPatio.length > 0) related = inPatio;
+    }
     if (related.length > 0) {
       setSerrariaDono(related[0].dono);
     } else {
@@ -408,12 +485,13 @@ export default function SerrariaModule({
   // Calculate current available balance for the chosen form combination
   const currentAvailableFormBalance = useMemo(() => {
     if (!serrariaEspecie || !serrariaDono) return 0;
-    const match = patioStockList.find(
+    const matches = patioStockList.filter(
       x => x.especie.toLowerCase().trim() === serrariaEspecie.toLowerCase().trim() &&
-           x.dono.toLowerCase().trim() === serrariaDono.toLowerCase().trim()
+           x.dono.toLowerCase().trim() === serrariaDono.toLowerCase().trim() &&
+           (!serrariaPatioOrigem || x.patio.toLowerCase().trim() === serrariaPatioOrigem.toLowerCase().trim())
     );
-    return match ? match.saldo : 0;
-  }, [serrariaEspecie, serrariaDono, patioStockList]);
+    return matches.reduce((acc, m) => acc + m.saldo, 0);
+  }, [serrariaEspecie, serrariaDono, serrariaPatioOrigem, patioStockList]);
 
   // Real-time yield calculation
   const formYieldPercent = useMemo(() => {
@@ -446,7 +524,7 @@ export default function SerrariaModule({
       return;
     }
     if (toraVol > currentAvailableFormBalance + 0.0001) {
-      alert(`Volume superior ao saldo atual disponível no pátio de toras (${currentAvailableFormBalance.toFixed(3)} m³).`);
+      alert(`Volume superior ao saldo atual disponível no pátio selecionado (${currentAvailableFormBalance.toFixed(3)} m³).`);
       return;
     }
 
@@ -458,7 +536,9 @@ export default function SerrariaModule({
       volumeSerrado: serradoVol,
       produtoSaida: serrariaProduto,
       rendimento: parseFloat(((serradoVol / toraVol) * 100).toFixed(2)),
-      dataProcessamento: serrariaDate
+      dataProcessamento: serrariaDate,
+      patio: serrariaPatioOrigem || (registeredPatios[0] || "Pátio 01 (Principal)"),
+      serraria: serrariaNomeUnidade || (registeredSerrarias[0] || "Serraria Principal (Matriz)")
     };
 
     saveSawmillLogs([newLog, ...sawmillLogs]);
@@ -984,9 +1064,11 @@ export default function SerrariaModule({
     return patioStockList.filter(item => {
       const matchSearch = !searchFilter || item.especie.toLowerCase().includes(searchFilter.toLowerCase());
       const matchOwner = !ownerFilter || item.dono.toLowerCase().includes(ownerFilter.toLowerCase());
-      return matchSearch && matchOwner;
+      const matchPatio = !patioFilter || item.patio.toLowerCase() === patioFilter.toLowerCase();
+      const matchSerraria = !serrariaFilter || item.serraria.toLowerCase() === serrariaFilter.toLowerCase();
+      return matchSearch && matchOwner && matchPatio && matchSerraria;
     });
-  }, [patioStockList, searchFilter, ownerFilter]);
+  }, [patioStockList, searchFilter, ownerFilter, patioFilter, serrariaFilter]);
 
   // Apply filters to finished sawn stock
   const filteredSawnStock = useMemo(() => {
@@ -1310,12 +1392,34 @@ export default function SerrariaModule({
       </div>
 
       {/* Audit & Filters row used for tables */}
-      <div className="bg-white border border-slate-200/80 p-4 rounded-xl shadow-xs flex flex-col md:flex-row items-center justify-between gap-4 no-print">
-        <div className="flex items-center gap-2">
+      <div className="bg-white border border-slate-200/80 p-4 rounded-xl shadow-xs flex flex-col xl:flex-row items-center justify-between gap-4 no-print">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="bg-slate-100 text-slate-800 text-[10px] font-bold px-2.5 py-1 rounded-md uppercase tracking-wider">Filtros</span>
           <span className="font-bold text-slate-700 text-xs uppercase tracking-wider">Buscar Ativos</span>
+          <button
+            type="button"
+            onClick={() => {
+              setManagePatiosTab("patios");
+              setIsManagePatiosOpen(true);
+            }}
+            className="ml-2 text-[11px] font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1 rounded-lg transition flex items-center gap-1 cursor-pointer"
+          >
+            <Warehouse className="w-3.5 h-3.5 text-amber-600" />
+            <span>+ Gerenciar Pátios</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setManagePatiosTab("serrarias");
+              setIsManagePatiosOpen(true);
+            }}
+            className="text-[11px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-lg transition flex items-center gap-1 cursor-pointer"
+          >
+            <Factory className="w-3.5 h-3.5 text-emerald-600" />
+            <span>+ Serrarias</span>
+          </button>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full md:w-auto flex-1 max-w-2xl">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 w-full xl:w-auto flex-1 max-w-4xl">
           <div className="relative">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
             <input
@@ -1334,6 +1438,18 @@ export default function SerrariaModule({
               onChange={(e) => setOwnerFilter(e.target.value)}
               className="w-full px-2.5 py-1.5 bg-slate-55 border border-slate-200 text-xs rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 transition font-medium"
             />
+          </div>
+          <div>
+            <select
+              value={patioFilter}
+              onChange={(e) => setPatioFilter(e.target.value)}
+              className="w-full px-2.5 py-1.5 bg-slate-55 border border-slate-200 text-xs rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 transition font-medium"
+            >
+              <option value="">— Todos os Pátios —</option>
+              {registeredPatios.map(p => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
           </div>
           <div>
             <select
@@ -1358,34 +1474,60 @@ export default function SerrariaModule({
         
         {/* Left Side: Pátio de Toras Stock Inventory */}
         <div className="lg:col-span-7 bg-white p-5 border border-slate-200 rounded-2xl shadow-sm space-y-4">
-          <div>
-            <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-tight flex items-center gap-2">
-              <span className="w-2.5 h-2.5 bg-amber-500 rounded-full inline-block"></span>
-              <span>Estoque de Toras no Pátio (Pátio de Toras Roliças)</span>
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">Saldo de madeira bruta disponível para desdobro.</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-tight flex items-center gap-2">
+                <Warehouse className="w-4 h-4 text-amber-600" />
+                <span>Estoque de Toras por Pátio & Serraria</span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">Saldo de madeira bruta segregada por pátio de descarregamento.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setManagePatiosTab("patios");
+                setIsManagePatiosOpen(true);
+              }}
+              className="text-[11px] font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1 rounded-lg transition flex items-center gap-1 cursor-pointer no-print"
+            >
+              <PlusCircle className="w-3.5 h-3.5 text-amber-600" />
+              <span>+ Novo Pátio</span>
+            </button>
           </div>
 
           {filteredPatioStock.length === 0 ? (
             <div className="p-8 text-center text-slate-400 bg-slate-50 border border-dashed border-slate-200 rounded-xl">
-              Nenhuma tora disponível no pátio. Realize faturamentos (baixas) no plano de manejo para abastecer a serraria.
+              Nenhuma tora disponível no pátio selecionado. Realize faturamentos (baixas) no plano de manejo para abastecer a serraria.
             </div>
           ) : (
-            <div className="overflow-hidden border border-slate-150 rounded-xl shadow-xs">
+            <div className="overflow-x-auto border border-slate-150 rounded-xl shadow-xs">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-slate-50/70 border-b border-slate-200 font-bold text-slate-500 font-mono text-[9px] uppercase tracking-wide">
+                    <th className="px-3.5 py-3">Pátio / Serraria</th>
                     <th className="px-3.5 py-3">Espécie</th>
                     <th className="px-3.5 py-3">Dono de Lote</th>
-                    <th className="px-3.5 py-3 text-right">Rec. (Manejo)</th>
-                    <th className="px-3.5 py-3 text-right">Proc. (Desdobrado)</th>
-                    <th className="px-3.5 py-3 text-right text-amber-900">Saldo no Pátio</th>
+                    <th className="px-3.5 py-3 text-right">Rec.</th>
+                    <th className="px-3.5 py-3 text-right">Proc.</th>
+                    <th className="px-3.5 py-3 text-right text-amber-900">Saldo</th>
                     <th className="px-3.5 py-3 text-center no-print">Operação</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredPatioStock.map((row, i) => (
                     <tr key={i} className="hover:bg-slate-50/50 transition">
+                      <td className="px-3.5 py-2.5">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="font-bold text-amber-900 bg-amber-50 border border-amber-200 text-[10px] px-2 py-0.5 rounded inline-flex items-center gap-1 w-fit">
+                            <Warehouse className="w-2.5 h-2.5 text-amber-650" />
+                            <span>{row.patio}</span>
+                          </span>
+                          <span className="text-[9px] text-slate-500 font-mono flex items-center gap-0.5">
+                            <Factory className="w-2.5 h-2.5 text-emerald-600" />
+                            <span>{row.serraria}</span>
+                          </span>
+                        </div>
+                      </td>
                       <td className="px-3.5 py-2.5 font-bold text-slate-900">{row.especie}</td>
                       <td className="px-3.5 py-2.5 text-slate-600 font-medium">{row.dono}</td>
                       <td className="px-3.5 py-2.5 text-right font-mono text-slate-500">{row.volume.toFixed(3)} m³</td>
@@ -1397,8 +1539,8 @@ export default function SerrariaModule({
                         {row.saldo > 0 ? (
                           <button
                             type="button"
-                            onClick={() => handleQuickDesdobro(row.especie, row.dono, row.saldo)}
-                            className="bg-emerald-50 hover:bg-emerald-100 text-emerald-805 font-bold text-[10px] uppercase px-2.5 py-1 rounded-md transition shadow-xs flex items-center gap-1 mx-auto"
+                            onClick={() => handleQuickDesdobro(row.especie, row.dono, row.saldo, row.patio, row.serraria)}
+                            className="bg-emerald-50 hover:bg-emerald-100 text-emerald-805 font-bold text-[10px] uppercase px-2.5 py-1 rounded-md transition shadow-xs flex items-center gap-1 mx-auto cursor-pointer"
                           >
                             <span>+ Desdobrar</span>
                           </button>
@@ -1485,6 +1627,69 @@ export default function SerrariaModule({
 
               <form onSubmit={handleSubmitProcess} className="space-y-4 pt-1 relative">
                 
+                {/* Pátio de Origem e Serraria */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider">
+                        Pátio de Origem
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setManagePatiosTab("patios");
+                          setIsManagePatiosOpen(true);
+                        }}
+                        className="text-[9px] font-bold text-amber-800 hover:text-amber-900 flex items-center gap-0.5 cursor-pointer"
+                      >
+                        <Warehouse className="w-2.5 h-2.5" />
+                        <span>+ Pátios</span>
+                      </button>
+                    </div>
+                    <select
+                      value={serrariaPatioOrigem}
+                      onChange={(e) => setSerrariaPatioOrigem(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 transition"
+                      required
+                    >
+                      <option value="">-- Selecione o pátio --</option>
+                      {registeredPatios.map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider">
+                        Serraria / Unidade
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setManagePatiosTab("serrarias");
+                          setIsManagePatiosOpen(true);
+                        }}
+                        className="text-[9px] font-bold text-emerald-800 hover:text-emerald-900 flex items-center gap-0.5 cursor-pointer"
+                      >
+                        <Factory className="w-2.5 h-2.5" />
+                        <span>+ Serrarias</span>
+                      </button>
+                    </div>
+                    <select
+                      value={serrariaNomeUnidade}
+                      onChange={(e) => setSerrariaNomeUnidade(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 transition"
+                      required
+                    >
+                      <option value="">-- Selecione a serraria --</option>
+                      {registeredSerrarias.map(s => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
                 {/* Espécie Dropdown selector */}
                 <div>
                   <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-1">
@@ -2143,7 +2348,8 @@ export default function SerrariaModule({
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 font-bold text-slate-500 font-mono text-[9px] uppercase tracking-wide">
-                  <th className="px-3.5 py-3">Data Operação</th>
+                  <th className="px-3.5 py-3">Data</th>
+                  <th className="px-3.5 py-3">Pátio / Serraria</th>
                   <th className="px-3.5 py-3">Espécie Florestal</th>
                   <th className="px-3.5 py-3">Dono do Lote</th>
                   <th className="px-3.5 py-3 text-center">Volume Tora Usado</th>
@@ -2159,6 +2365,25 @@ export default function SerrariaModule({
                   return (
                     <tr key={log.id} className="hover:bg-slate-50/50 transition">
                       <td className="px-3.5 py-3 font-semibold text-slate-950 font-mono">{log.dataProcessamento}</td>
+                      <td className="px-3.5 py-3">
+                        <div className="flex flex-col gap-0.5">
+                          {log.patio && (
+                            <span className="font-bold text-amber-900 bg-amber-50 border border-amber-200 text-[9px] px-1.5 py-0.5 rounded inline-flex items-center gap-1 w-fit">
+                              <Warehouse className="w-2.5 h-2.5 text-amber-650" />
+                              <span>{log.patio}</span>
+                            </span>
+                          )}
+                          {log.serraria && (
+                            <span className="text-[9px] text-slate-500 font-mono flex items-center gap-0.5">
+                              <Factory className="w-2.5 h-2.5 text-emerald-600" />
+                              <span>{log.serraria}</span>
+                            </span>
+                          )}
+                          {!log.patio && !log.serraria && (
+                            <span className="text-[9px] text-slate-400 font-mono">—</span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-3.5 py-3 font-bold text-slate-900">{log.especie}</td>
                       <td className="px-3.5 py-3 font-mono text-slate-600">{log.dono}</td>
                       <td className="px-3.5 py-3 text-center font-mono font-semibold text-amber-700">
@@ -2218,7 +2443,7 @@ export default function SerrariaModule({
               </tbody>
               <tfoot className="bg-slate-100/80 border-t-2 border-slate-300 font-bold text-slate-800 text-xs">
                 <tr>
-                  <td colSpan={3} className="px-3.5 py-3 uppercase tracking-wider font-extrabold text-slate-700">
+                  <td colSpan={4} className="px-3.5 py-3 uppercase tracking-wider font-extrabold text-slate-700">
                     Totais Acumulados ({filteredProcessLogs.length} Lançamentos)
                   </td>
                   <td className="px-3.5 py-3 text-center font-mono font-extrabold text-amber-900">
@@ -2621,6 +2846,13 @@ export default function SerrariaModule({
           </div>
         </div>
       )}
+
+      {/* Manage Patios and Serrarias Modal */}
+      <ManagePatiosModal
+        isOpen={isManagePatiosOpen}
+        onClose={() => setIsManagePatiosOpen(false)}
+        initialTab={managePatiosTab}
+      />
 
     </div>
   );

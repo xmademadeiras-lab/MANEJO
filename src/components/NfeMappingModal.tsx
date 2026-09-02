@@ -5,8 +5,14 @@
 
 import React, { useState, useEffect } from "react";
 import { Autex, NfeImportResult, NfeItem } from "../types";
-import { X, Check, AlertTriangle, FileText, Landmark, CheckCircle2, Factory, Warehouse, Truck } from "lucide-react";
-import { getRegisteredSerrarias, getRegisteredPatios } from "../lib/sawmillsData";
+import { X, Check, AlertTriangle, FileText, Landmark, CheckCircle2, Factory, Warehouse, Truck, PlusCircle } from "lucide-react";
+import { 
+  getRegisteredSerrarias, 
+  getRegisteredPatios, 
+  addRegisteredPatio, 
+  addRegisteredSerraria 
+} from "../lib/sawmillsData";
+import ManagePatiosModal from "./ManagePatiosModal";
 
 interface NfeMappingModalProps {
   isOpen: boolean;
@@ -40,6 +46,8 @@ export default function NfeMappingModal({
   // Lists of options
   const [registeredSerrarias, setRegisteredSerrarias] = useState<string[]>([]);
   const [registeredPatios, setRegisteredPatios] = useState<string[]>([]);
+  const [isManagePatiosOpen, setIsManagePatiosOpen] = useState(false);
+  const [managePatiosTab, setManagePatiosTab] = useState<"patios" | "serrarias">("patios");
 
   // Track if modal was opened to handle initialization properly
   const [lastOpen, setLastOpen] = useState(false);
@@ -49,6 +57,19 @@ export default function NfeMappingModal({
   const [newEspecie, setNewEspecie] = useState("");
   const [newDono, setNewDono] = useState("");
   const [newVolume, setNewVolume] = useState("");
+
+  const refreshPatiosAndSerrarias = () => {
+    const serrarias = getRegisteredSerrarias();
+    const patios = getRegisteredPatios();
+    setRegisteredSerrarias(serrarias);
+    setRegisteredPatios(patios);
+  };
+
+  useEffect(() => {
+    const handler = () => refreshPatiosAndSerrarias();
+    window.addEventListener("patios_serrarias_updated", handler);
+    return () => window.removeEventListener("patios_serrarias_updated", handler);
+  }, []);
 
   // Reset mappings and load saved relationships when modal opens
   useEffect(() => {
@@ -228,6 +249,14 @@ export default function NfeMappingModal({
       });
     }
 
+    // Auto register patio and serraria if they are new
+    if (patioDescarregamento && patioDescarregamento.trim()) {
+      addRegisteredPatio(patioDescarregamento.trim());
+    }
+    if (serrariaDestino && serrariaDestino.trim()) {
+      addRegisteredSerraria(serrariaDestino.trim());
+    }
+
     onConfirm(finalMappings, placaCaminhao, serrariaDestino, patioDescarregamento);
     onClose();
   };
@@ -368,9 +397,22 @@ export default function NfeMappingModal({
 
           {/* Serraria Destino */}
           <div>
-            <div className="flex items-center gap-1.5 mb-1">
-              <Factory className="w-3.5 h-3.5 text-emerald-700" />
-              <label className="font-bold text-slate-700 text-[10px] uppercase tracking-wider">Lançar para Serraria:</label>
+            <div className="flex items-center justify-between gap-1.5 mb-1">
+              <div className="flex items-center gap-1.5">
+                <Factory className="w-3.5 h-3.5 text-emerald-700" />
+                <label className="font-bold text-slate-700 text-[10px] uppercase tracking-wider">Lançar para Serraria:</label>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setManagePatiosTab("serrarias");
+                  setIsManagePatiosOpen(true);
+                }}
+                className="text-[9px] font-bold text-emerald-700 hover:text-emerald-900 underline flex items-center gap-0.5 cursor-pointer"
+                title="Cadastrar nova Serraria"
+              >
+                <PlusCircle className="w-3 h-3" /> + Nova
+              </button>
             </div>
             <input
               type="text"
@@ -389,9 +431,22 @@ export default function NfeMappingModal({
 
           {/* Pátio de Descarregamento */}
           <div>
-            <div className="flex items-center gap-1.5 mb-1">
-              <Warehouse className="w-3.5 h-3.5 text-amber-700" />
-              <label className="font-bold text-slate-700 text-[10px] uppercase tracking-wider">Pátio do Descarregamento:</label>
+            <div className="flex items-center justify-between gap-1.5 mb-1">
+              <div className="flex items-center gap-1.5">
+                <Warehouse className="w-3.5 h-3.5 text-amber-700" />
+                <label className="font-bold text-slate-700 text-[10px] uppercase tracking-wider">Pátio do Descarregamento:</label>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setManagePatiosTab("patios");
+                  setIsManagePatiosOpen(true);
+                }}
+                className="text-[9px] font-bold text-amber-800 hover:text-amber-950 underline flex items-center gap-0.5 cursor-pointer"
+                title="Adicionar outro pátio para não misturar toras"
+              >
+                <PlusCircle className="w-3 h-3" /> + Novo Pátio
+              </button>
             </div>
             <input
               type="text"
@@ -670,6 +725,13 @@ export default function NfeMappingModal({
           </div>
         </div>
       </div>
+
+      <ManagePatiosModal
+        isOpen={isManagePatiosOpen}
+        onClose={() => setIsManagePatiosOpen(false)}
+        initialTab={managePatiosTab}
+        onUpdated={refreshPatiosAndSerrarias}
+      />
     </div>
   );
 }
