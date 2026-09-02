@@ -51,6 +51,8 @@ export interface NfeDeduction {
   xmlFileName?: string;
   placaCaminhao?: string; // transport license plate
   tipoLancamento?: "Manual" | "XML"; // manual launch or XML import
+  serrariaDestino?: string; // e.g., "Serraria Principal (Matriz)", "Serraria 02", etc.
+  patioDescarregamento?: string; // e.g., "Pátio 01 (Principal)", "Pátio 02", etc.
 }
 
 export interface SawmillProcessLog {
@@ -62,6 +64,8 @@ export interface SawmillProcessLog {
   produtoSaida: string;    // e.g., "Viga", "Prancha", "Tábua", "Ripa", "Sarrafo"
   rendimento: number;      // yield percentage (e.g., 45.5%)
   dataProcessamento: string;
+  serraria?: string;       // Sawmill where the conversion occurred
+  patio?: string;          // Yard origin of the logs
 }
 
 export interface UserAccount {

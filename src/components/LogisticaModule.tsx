@@ -22,8 +22,11 @@ import {
   Trash2,
   Edit2,
   X,
-  ArrowRight
+  ArrowRight,
+  Warehouse,
+  Factory
 } from "lucide-react";
+import { getRegisteredSerrarias, getRegisteredPatios } from "../lib/sawmillsData";
 
 interface LogisticaModuleProps {
   deductions: NfeDeduction[];
@@ -42,6 +45,10 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
   // Local storage for registered trucks list
   const [trucksList, setTrucksList] = useState<CustomTruckData[]>([]);
 
+  // Directory of sawmills and patios
+  const [registeredSerrarias, setRegisteredSerrarias] = useState<string[]>([]);
+  const [registeredPatios, setRegisteredPatios] = useState<string[]>([]);
+
   // Form state for registering new carrier truck
   const [newPlaca, setNewPlaca] = useState("");
   const [newModelo, setNewModelo] = useState("");
@@ -50,6 +57,8 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
 
   // Filters
   const [truckFilter, setTruckFilter] = useState("");
+  const [filterPatio, setFilterPatio] = useState("");
+  const [filterSerraria, setFilterSerraria] = useState("");
   const [searchPlaca, setSearchPlaca] = useState("");
 
   // Edit State for Fleet Truck Directory
@@ -60,20 +69,27 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
   const [editTruckCapacidade, setEditTruckCapacidade] = useState("45");
   const [editUpdateHistoricalDeductions, setEditUpdateHistoricalDeductions] = useState(true);
 
-  // Edit State for Specific Shipment / Trip Plate
+  // Edit State for Specific Shipment / Trip Plate & Yard & Sawmill
   const [editingShipment, setEditingShipment] = useState<{
     numeroNfe: string;
     placaCaminhao: string;
     dono: string;
     dataEmissao: string;
     volume: number;
+    serrariaDestino: string;
+    patioDescarregamento: string;
   } | null>(null);
   const [editShipmentNewPlaca, setEditShipmentNewPlaca] = useState("");
+  const [editShipmentNewPatio, setEditShipmentNewPatio] = useState("");
+  const [editShipmentNewSerraria, setEditShipmentNewSerraria] = useState("");
   const [editShipmentSelectedFleetPlaca, setEditShipmentSelectedFleetPlaca] = useState("");
   const [editShipmentScope, setEditShipmentScope] = useState<"single" | "all">("single");
 
-  // Loading configured trucks from memory
+  // Loading configured trucks and directories
   useEffect(() => {
+    setRegisteredSerrarias(getRegisteredSerrarias());
+    setRegisteredPatios(getRegisteredPatios());
+
     const saved = localStorage.getItem("logistica_trucks_directory");
     if (saved) {
       try {
@@ -222,16 +238,20 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
     alert("Dados e placa do veículo atualizados com sucesso!");
   };
 
-  // Handlers for Editing Trip / Shipment Vehicle Plate
+  // Handlers for Editing Trip / Shipment Vehicle Plate, Yard & Sawmill
   const handleStartEditShipment = (trip: {
     numeroNfe: string;
     placaCaminhao: string;
     dono: string;
     dataEmissao: string;
     volume: number;
+    serrariaDestino: string;
+    patioDescarregamento: string;
   }) => {
     setEditingShipment(trip);
     setEditShipmentNewPlaca(trip.placaCaminhao);
+    setEditShipmentNewPatio(trip.patioDescarregamento || "Pátio 01 (Principal)");
+    setEditShipmentNewSerraria(trip.serrariaDestino || "Serraria Principal (Matriz)");
     const matchedInFleet = trucksList.find(t => t.placa.toUpperCase() === trip.placaCaminhao.toUpperCase());
     setEditShipmentSelectedFleetPlaca(matchedInFleet ? matchedInFleet.placa : "custom");
     setEditShipmentScope("single");
@@ -243,6 +263,8 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
 
     const cleanedOldPlaca = editingShipment.placaCaminhao.trim().toUpperCase();
     const cleanedNewPlaca = editShipmentNewPlaca.trim().toUpperCase();
+    const newPatio = editShipmentNewPatio.trim() || "Pátio 01 (Principal)";
+    const newSerraria = editShipmentNewSerraria.trim() || "Serraria Principal (Matriz)";
 
     if (!cleanedNewPlaca) {
       alert("A placa ou identificação do veículo é obrigatória.");
@@ -262,14 +284,18 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
         if (dNfe === editingShipment.numeroNfe.trim() && dPlaca === cleanedOldPlaca) {
           return {
             ...d,
-            placaCaminhao: cleanedNewPlaca
+            placaCaminhao: cleanedNewPlaca,
+            patioDescarregamento: newPatio,
+            serrariaDestino: newSerraria
           };
         }
       } else {
         if (dPlaca === cleanedOldPlaca) {
           return {
             ...d,
-            placaCaminhao: cleanedNewPlaca
+            placaCaminhao: cleanedNewPlaca,
+            patioDescarregamento: newPatio,
+            serrariaDestino: newSerraria
           };
         }
       }
@@ -278,11 +304,11 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
 
     onSaveDeductions(
       updatedDeductions,
-      `Edição de placa da NF #${editingShipment.numeroNfe} para "${cleanedNewPlaca}"`
+      `Edição de placa (${cleanedNewPlaca}), pátio (${newPatio}) e serraria (${newSerraria}) da NF #${editingShipment.numeroNfe}`
     );
 
     setEditingShipment(null);
-    alert("Placa do veículo atualizada com sucesso nas viagens!");
+    alert("Dados da viagem, pátio de descarregamento e serraria de destino atualizados com sucesso!");
   };
 
   // Analytical Calculations from Actual Deductions
@@ -401,6 +427,8 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
       dono: string;
       species: Set<string>;
       volume: number;
+      serrariaDestino: string;
+      patioDescarregamento: string;
     }> = {};
 
     deductions.forEach(d => {
@@ -408,6 +436,12 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
       if (tripsGroup[key]) {
         tripsGroup[key].volume += d.volume;
         tripsGroup[key].species.add(d.especie);
+        if (d.serrariaDestino && !tripsGroup[key].serrariaDestino) {
+          tripsGroup[key].serrariaDestino = d.serrariaDestino;
+        }
+        if (d.patioDescarregamento && !tripsGroup[key].patioDescarregamento) {
+          tripsGroup[key].patioDescarregamento = d.patioDescarregamento;
+        }
       } else {
         tripsGroup[key] = {
           numeroNfe: d.numeroNfe || "S/N",
@@ -415,12 +449,14 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
           placaCaminhao: d.placaCaminhao || "Não Informado",
           dono: d.dono || "-",
           species: new Set([d.especie]),
-          volume: d.volume
+          volume: d.volume,
+          serrariaDestino: d.serrariaDestino || "Serraria Principal (Matriz)",
+          patioDescarregamento: d.patioDescarregamento || "Pátio 01 (Principal)"
         };
       }
     });
 
-    const parsedArray = Object.values(tripsGroup).map(grp => ({
+    let parsedArray = Object.values(tripsGroup).map(grp => ({
       ...grp,
       especiesFormatted: Array.from(grp.species).join(", ")
     }));
@@ -430,10 +466,19 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
 
     // Filter by selected truck
     if (truckFilter) {
-      return parsedArray.filter(t => t.placaCaminhao.toLowerCase().includes(truckFilter.toLowerCase()));
+      parsedArray = parsedArray.filter(t => t.placaCaminhao.toLowerCase().includes(truckFilter.toLowerCase()));
     }
+    // Filter by patio
+    if (filterPatio) {
+      parsedArray = parsedArray.filter(t => t.patioDescarregamento.toLowerCase().includes(filterPatio.toLowerCase()));
+    }
+    // Filter by serraria
+    if (filterSerraria) {
+      parsedArray = parsedArray.filter(t => t.serrariaDestino.toLowerCase().includes(filterSerraria.toLowerCase()));
+    }
+
     return parsedArray;
-  }, [deductions, truckFilter]);
+  }, [deductions, truckFilter, filterPatio, filterSerraria]);
 
   return (
     <div className="space-y-6 animate-fade-in" id="workspace-tab-logistica">
@@ -736,15 +781,37 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
           </div>
 
           {/* Table filter drop */}
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <select
               value={truckFilter}
               onChange={(e) => setTruckFilter(e.target.value)}
-              className="px-2.5 py-1.5 bg-slate-55 border border-slate-205 text-xs font-bold rounded-lg focus:outline-none text-slate-705"
+              className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 text-xs font-bold rounded-lg focus:outline-none text-slate-700"
             >
               <option value="">— Filtrar por caminhão —</option>
               {Array.from(new Set(deductions.map(d => (d.placaCaminhao || "Não Informado").trim()))).map(p => (
                 <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+
+            <select
+              value={filterPatio}
+              onChange={(e) => setFilterPatio(e.target.value)}
+              className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 text-xs font-bold rounded-lg focus:outline-none text-slate-700"
+            >
+              <option value="">— Filtrar por pátio —</option>
+              {Array.from(new Set(deductions.map(d => d.patioDescarregamento || "Pátio 01 (Principal)"))).map(p => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+
+            <select
+              value={filterSerraria}
+              onChange={(e) => setFilterSerraria(e.target.value)}
+              className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 text-xs font-bold rounded-lg focus:outline-none text-slate-700"
+            >
+              <option value="">— Filtrar por serraria —</option>
+              {Array.from(new Set(deductions.map(d => d.serrariaDestino || "Serraria Principal (Matriz)"))).map(s => (
+                <option key={s} value={s}>{s}</option>
               ))}
             </select>
           </div>
@@ -755,12 +822,13 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
             Nenhuma viagem registrada de escoamento no período selecionado.
           </div>
         ) : (
-          <div className="overflow-hidden border border-slate-150 rounded-xl shadow-xs">
+          <div className="overflow-x-auto border border-slate-150 rounded-xl shadow-xs">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="bg-slate-55 border-b border-slate-200 font-bold text-slate-500 font-mono text-[9px] uppercase tracking-wide">
+                <tr className="bg-slate-50 border-b border-slate-200 font-bold text-slate-500 font-mono text-[9px] uppercase tracking-wide">
                   <th className="px-4 py-3">Código/Nota NFe</th>
                   <th className="px-4 py-3">Caminhão de Transporte</th>
+                  <th className="px-4 py-3">Pátio / Serraria Destino</th>
                   <th className="px-4 py-3">Dono do Lote</th>
                   <th className="px-4 py-3 text-center">Data Emissão</th>
                   <th className="px-4 py-3">Espécies Florestais</th>
@@ -776,9 +844,21 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
                     <td className="px-4 py-3 font-mono font-bold text-slate-800 bg-slate-50/60 rounded px-2 py-1 inline-block my-2">
                       {trip.placaCaminhao}
                     </td>
+                    <td className="px-4 py-3">
+                      <div className="space-y-1">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-amber-50 text-amber-900 border border-amber-200 rounded">
+                          <Warehouse className="w-3 h-3 text-amber-600" />
+                          {trip.patioDescarregamento}
+                        </span>
+                        <div className="text-[10px] text-slate-500 font-semibold flex items-center gap-1">
+                          <Factory className="w-2.5 h-2.5 text-slate-400" />
+                          {trip.serrariaDestino}
+                        </div>
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-slate-600 font-semibold">{trip.dono}</td>
                     <td className="px-4 py-3 text-center font-mono text-slate-500">{trip.dataEmissao}</td>
-                    <td className="px-4 py-3 text-slate-500 font-medium truncate max-w-[200px]" title={trip.especiesFormatted}>
+                    <td className="px-4 py-3 text-slate-500 font-medium truncate max-w-[180px]" title={trip.especiesFormatted}>
                       {trip.especiesFormatted}
                     </td>
                     <td className="px-4 py-3 text-right font-mono font-bold text-rose-600 bg-rose-50/10">
@@ -794,10 +874,10 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
                         type="button"
                         onClick={() => handleStartEditShipment(trip)}
                         className="px-2.5 py-1 text-[10px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 rounded-lg transition flex items-center gap-1 cursor-pointer mx-auto"
-                        title="Editar placa do veículo de transporte nesta viagem"
+                        title="Editar placa, pátio ou serraria de destino desta viagem"
                       >
                         <Edit2 className="w-3 h-3 text-emerald-700" />
-                        <span>Editar Placa</span>
+                        <span>Editar Dados</span>
                       </button>
                     </td>
                   </tr>
@@ -930,16 +1010,16 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
         </div>
       )}
 
-      {/* --- MODAL 2: EDIT SHIPMENT / TRIP LICENSE PLATE --- */}
+      {/* --- MODAL 2: EDIT SHIPMENT / TRIP (PLATE, PATIO & SERRARIA) --- */}
       {editingShipment && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-xl border border-slate-200 overflow-hidden animate-scale-in">
+          <div className="bg-white rounded-2xl max-w-lg w-full shadow-xl border border-slate-200 overflow-hidden animate-scale-in">
             
             {/* Modal Header */}
             <div className="bg-slate-900 text-white px-5 py-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Edit2 className="w-5 h-5 text-emerald-400" />
-                <h3 className="font-extrabold text-sm tracking-tight">Editar Placa do Veículo na Viagem</h3>
+                <h3 className="font-extrabold text-sm tracking-tight">Editar Dados da Carga / Viagem</h3>
               </div>
               <button
                 type="button"
@@ -954,7 +1034,7 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
             <form onSubmit={handleSaveEditShipment} className="p-5 space-y-4">
               
               {/* Trip Context Card */}
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1 text-xs">
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5 text-xs">
                 <div className="flex justify-between items-center font-bold text-slate-800">
                   <span>Nota Fiscal: <strong className="font-mono text-emerald-800">NF #{editingShipment.numeroNfe}</strong></span>
                   <span className="text-slate-500 font-mono text-[11px]">{editingShipment.dataEmissao}</span>
@@ -963,11 +1043,19 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
                   <span>Dono: <strong>{editingShipment.dono}</strong></span>
                   <span className="font-mono font-bold text-rose-600">-{editingShipment.volume.toFixed(3)} m³</span>
                 </div>
-                <div className="pt-1.5 border-t border-slate-200/80 flex items-center gap-2 text-xs">
-                  <span className="text-slate-500">Placa Atual:</span>
-                  <span className="font-mono font-bold px-2 py-0.5 bg-amber-100 text-amber-900 rounded border border-amber-200">
-                    {editingShipment.placaCaminhao}
-                  </span>
+                <div className="pt-1.5 border-t border-slate-200/80 grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <span className="text-[10px] text-slate-400 block font-bold uppercase">Placa Atual:</span>
+                    <span className="font-mono font-bold px-2 py-0.5 bg-amber-100 text-amber-900 rounded border border-amber-200 text-xs">
+                      {editingShipment.placaCaminhao}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block font-bold uppercase">Pátio Atual:</span>
+                    <span className="font-bold text-slate-700 text-xs">
+                      {editingShipment.patioDescarregamento}
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -999,7 +1087,7 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
               {/* New Placa Text Input */}
               <div>
                 <label className="block text-[10px] font-bold uppercase text-slate-500 tracking-wider mb-1">
-                  Nova Placa do Veículo Transportador *
+                  Placa do Veículo Transportador *
                 </label>
                 <input
                   type="text"
@@ -1013,6 +1101,68 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
                   placeholder="EX: MDF-2026"
                   className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono text-sm font-bold uppercase text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition"
                 />
+              </div>
+
+              {/* Edit Pátio de Descarregamento */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-500 tracking-wider mb-1 flex items-center gap-1">
+                    <Warehouse className="w-3 h-3 text-amber-600" />
+                    <span>Pátio de Descarregamento</span>
+                  </label>
+                  <select
+                    value={registeredPatios.includes(editShipmentNewPatio) ? editShipmentNewPatio : "custom"}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val !== "custom") {
+                        setEditShipmentNewPatio(val);
+                      }
+                    }}
+                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition mb-1.5"
+                  >
+                    {registeredPatios.map(p => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                    <option value="custom">Outro Pátio...</option>
+                  </select>
+                  <input
+                    type="text"
+                    value={editShipmentNewPatio}
+                    onChange={(e) => setEditShipmentNewPatio(e.target.value)}
+                    placeholder="Nome do Pátio"
+                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition"
+                  />
+                </div>
+
+                {/* Edit Serraria Destino */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-500 tracking-wider mb-1 flex items-center gap-1">
+                    <Factory className="w-3 h-3 text-emerald-600" />
+                    <span>Serraria de Destino</span>
+                  </label>
+                  <select
+                    value={registeredSerrarias.includes(editShipmentNewSerraria) ? editShipmentNewSerraria : "custom"}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val !== "custom") {
+                        setEditShipmentNewSerraria(val);
+                      }
+                    }}
+                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition mb-1.5"
+                  >
+                    {registeredSerrarias.map(s => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                    <option value="custom">Outra Serraria...</option>
+                  </select>
+                  <input
+                    type="text"
+                    value={editShipmentNewSerraria}
+                    onChange={(e) => setEditShipmentNewSerraria(e.target.value)}
+                    placeholder="Nome da Serraria"
+                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition"
+                  />
+                </div>
               </div>
 
               {/* Scope Radio Group */}
@@ -1060,7 +1210,7 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
                   className="px-5 py-2 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-xs flex items-center gap-1.5"
                 >
                   <CheckCircle2 className="w-4 h-4 text-emerald-300" />
-                  <span>Gravar Nova Placa</span>
+                  <span>Salvar Dados da Carga</span>
                 </button>
               </div>
 

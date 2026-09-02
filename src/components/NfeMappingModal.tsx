@@ -5,14 +5,20 @@
 
 import React, { useState, useEffect } from "react";
 import { Autex, NfeImportResult, NfeItem } from "../types";
-import { X, Check, AlertTriangle, FileText, Landmark, CheckCircle2 } from "lucide-react";
+import { X, Check, AlertTriangle, FileText, Landmark, CheckCircle2, Factory, Warehouse, Truck } from "lucide-react";
+import { getRegisteredSerrarias, getRegisteredPatios } from "../lib/sawmillsData";
 
 interface NfeMappingModalProps {
   isOpen: boolean;
   importResult: NfeImportResult | null;
   activeAutex: Autex;
   onClose: () => void;
-  onConfirm: (mappedItems: { item: NfeItem; autexItemId: string }[], placaCaminhao: string) => void;
+  onConfirm: (
+    mappedItems: { item: NfeItem; autexItemId: string }[], 
+    placaCaminhao: string,
+    serrariaDestino?: string,
+    patioDescarregamento?: string
+  ) => void;
   onAddAutexItem?: (especie: string, dono: string, volumeAutorizado: number) => { id: string; especie: string; dono: string; volumeAutorizado: number } | null;
 }
 
@@ -28,6 +34,12 @@ export default function NfeMappingModal({
   const [selectedSpecies, setSelectedSpecies] = useState<Record<number, string>>({});
   const [selectedOwners, setSelectedOwners] = useState<Record<number, string>>({});
   const [placaCaminhao, setPlacaCaminhao] = useState("");
+  const [serrariaDestino, setSerrariaDestino] = useState("Serraria Principal (Matriz)");
+  const [patioDescarregamento, setPatioDescarregamento] = useState("Pátio 01 (Principal)");
+
+  // Lists of options
+  const [registeredSerrarias, setRegisteredSerrarias] = useState<string[]>([]);
+  const [registeredPatios, setRegisteredPatios] = useState<string[]>([]);
 
   // Track if modal was opened to handle initialization properly
   const [lastOpen, setLastOpen] = useState(false);
@@ -44,6 +56,13 @@ export default function NfeMappingModal({
       setLastOpen(true);
       setPlacaCaminhao("");
       setRegisteringIndex(null);
+      
+      const serrarias = getRegisteredSerrarias();
+      const patios = getRegisteredPatios();
+      setRegisteredSerrarias(serrarias);
+      setRegisteredPatios(patios);
+      if (serrarias.length > 0) setSerrariaDestino(serrarias[0]);
+      if (patios.length > 0) setPatioDescarregamento(patios[0]);
       
       const initialSpecies: Record<number, string> = {};
       const initialOwners: Record<number, string> = {};
@@ -209,7 +228,7 @@ export default function NfeMappingModal({
       });
     }
 
-    onConfirm(finalMappings, placaCaminhao);
+    onConfirm(finalMappings, placaCaminhao, serrariaDestino, patioDescarregamento);
     onClose();
   };
 
@@ -330,19 +349,64 @@ export default function NfeMappingModal({
           </div>
         </div>
 
-        {/* Truck information selector section */}
-        <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-150 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-2">
-            <span className="bg-slate-900 text-white text-[9px] font-bold px-2 py-0.5 uppercase tracking-wider rounded-md">Logística</span>
-            <span className="font-bold text-slate-700">Veículo de Transporte (Placa ou Identificação do veículo):</span>
+        {/* Truck, Sawmill destination and Unloading yard information section */}
+        <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-150 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+          {/* Veículo / Placa */}
+          <div>
+            <div className="flex items-center gap-1.5 mb-1">
+              <Truck className="w-3.5 h-3.5 text-slate-700" />
+              <label className="font-bold text-slate-700 text-[10px] uppercase tracking-wider">Veículo (Placa / Caminhão):</label>
+            </div>
+            <input
+              type="text"
+              placeholder="Ex: ABC-1234 / Scania"
+              value={placaCaminhao}
+              onChange={(e) => setPlacaCaminhao(e.target.value)}
+              className="w-full px-3 py-1.5 bg-white border border-slate-205 rounded-lg font-bold text-xs focus:ring-2 focus:ring-emerald-550/15 focus:border-emerald-600 focus:outline-none placeholder-slate-400 uppercase"
+            />
           </div>
-          <input
-            type="text"
-            placeholder="Ex: ABC-1234 / Mercedes Vermelho"
-            value={placaCaminhao}
-            onChange={(e) => setPlacaCaminhao(e.target.value)}
-            className="w-full md:w-80 px-3.5 py-1.5 bg-white border border-slate-205 rounded-lg font-bold text-xs focus:ring-2 focus:ring-emerald-550/15 focus:border-emerald-600 focus:outline-none placeholder-slate-400 uppercase"
-          />
+
+          {/* Serraria Destino */}
+          <div>
+            <div className="flex items-center gap-1.5 mb-1">
+              <Factory className="w-3.5 h-3.5 text-emerald-700" />
+              <label className="font-bold text-slate-700 text-[10px] uppercase tracking-wider">Lançar para Serraria:</label>
+            </div>
+            <input
+              type="text"
+              list="xml-serrarias-list"
+              value={serrariaDestino}
+              onChange={(e) => setSerrariaDestino(e.target.value)}
+              placeholder="Selecione ou digite a serraria"
+              className="w-full px-3 py-1.5 bg-white border border-slate-205 rounded-lg font-bold text-xs focus:ring-2 focus:ring-emerald-550/15 focus:border-emerald-600 focus:outline-none text-emerald-950"
+            />
+            <datalist id="xml-serrarias-list">
+              {registeredSerrarias.map(s => (
+                <option key={s} value={s} />
+              ))}
+            </datalist>
+          </div>
+
+          {/* Pátio de Descarregamento */}
+          <div>
+            <div className="flex items-center gap-1.5 mb-1">
+              <Warehouse className="w-3.5 h-3.5 text-amber-700" />
+              <label className="font-bold text-slate-700 text-[10px] uppercase tracking-wider">Pátio do Descarregamento:</label>
+            </div>
+            <input
+              type="text"
+              list="xml-patios-list"
+              value={patioDescarregamento}
+              onChange={(e) => setPatioDescarregamento(e.target.value)}
+              placeholder="Selecione ou digite o pátio"
+              className="w-full px-3 py-1.5 bg-white border border-slate-205 rounded-lg font-bold text-xs focus:ring-2 focus:ring-emerald-550/15 focus:border-emerald-600 focus:outline-none text-amber-950"
+            />
+            <datalist id="xml-patios-list">
+              {registeredPatios.map(p => (
+                <option key={p} value={p} />
+              ))}
+            </datalist>
+          </div>
         </div>
 
         {/* Items mapping list */}

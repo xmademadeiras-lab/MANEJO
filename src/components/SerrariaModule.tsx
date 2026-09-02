@@ -194,6 +194,106 @@ export default function SerrariaModule({
   const [editCliente, setEditCliente] = useState("");
   const [editDate, setEditDate] = useState("");
 
+  // Export Conversões / Processos de Desdobramento para Excel (CSV formatado com BOM UTF-8)
+  const handleExportDesdobroExcel = (onlyConversions = false) => {
+    // Se onlyConversions for true, exporta apenas desdobros e beneficiamentos.
+    const logsToExport = onlyConversions
+      ? filteredProcessLogs.filter(l => l.volumeTora > 0 || (l.volumeSerrado > 0 && !l.produtoSaida.includes("Beneficiamento - Consumo")))
+      : filteredProcessLogs;
+
+    if (logsToExport.length === 0) {
+      alert("Nenhum registro de processamento ou desdobro disponível para exportação.");
+      return;
+    }
+
+    const headers = [
+      "DATA_OPERACAO",
+      "ESPECIE_POPULAR",
+      "NOME_CIENTIFICO",
+      "PROPRIETARIO_DONO",
+      "PRODUTO_CONVERTIDO",
+      "TIPO_OPERACAO",
+      "VOLUME_TORA_USADO_M3",
+      "VOLUME_MADEIRA_SERRADA_M3",
+      "RENDIMENTO_PERCENTUAL"
+    ];
+
+    const rows: string[] = [headers.join(";")];
+
+    let totalToraUsado = 0;
+    let totalSerradoProduzido = 0;
+
+    logsToExport.forEach(log => {
+      const dataOp = log.dataProcessamento || "";
+      const esp = (log.especie || "").replace(/;/g, ",");
+      const cient = (getScientificName(log.especie) || "").replace(/;/g, ",");
+      const dono = (log.dono || "").replace(/;/g, ",");
+      const prod = (log.produtoSaida || "").replace(/;/g, ",");
+
+      let tipo = "Desdobro Primário (Tora ➔ Serrado)";
+      if (log.produtoSaida.includes("Beneficiamento - Consumo")) {
+        tipo = "Consumo para Beneficiamento";
+      } else if (log.volumeTora === 0 && log.volumeSerrado > 0 && log.rendimento > 0) {
+        tipo = "Beneficiamento (Plainamento)";
+      } else if (log.volumeSerrado < 0) {
+        tipo = "Saída / Venda Externa";
+      }
+
+      const volToraNum = log.volumeTora || 0;
+      const volSerradoNum = log.volumeSerrado || 0;
+
+      if (volToraNum > 0) totalToraUsado += volToraNum;
+      if (volSerradoNum > 0) totalSerradoProduzido += volSerradoNum;
+
+      const volToraStr = volToraNum > 0 ? volToraNum.toFixed(4).replace(".", ",") : "0,0000";
+      const volSerradoStr = volSerradoNum.toFixed(4).replace(".", ",");
+      const rendStr = log.rendimento ? log.rendimento.toFixed(2).replace(".", ",") + "%" : "0,00%";
+
+      rows.push([
+        dataOp,
+        esp,
+        cient,
+        dono,
+        prod,
+        tipo,
+        volToraStr,
+        volSerradoStr,
+        rendStr
+      ].join(";"));
+    });
+
+    // Summary Totals
+    const rendimentoMedioPonderado = totalToraUsado > 0 
+      ? ((totalSerradoProduzido / totalToraUsado) * 100).toFixed(2).replace(".", ",") + "%" 
+      : "0,00%";
+
+    rows.push(""); // blank line
+    rows.push([
+      "TOTAIS GERAIS ACUMULADOS",
+      "",
+      "",
+      "",
+      `Total Registros: ${logsToExport.length}`,
+      "SOMA CONVERSÕES",
+      totalToraUsado.toFixed(4).replace(".", ","),
+      totalSerradoProduzido.toFixed(4).replace(".", ","),
+      rendimentoMedioPonderado
+    ].join(";"));
+
+    const content = rows.join("\r\n");
+    const blob = new Blob(["\ufeff" + content], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    const nowStr = new Date().toISOString().split("T")[0];
+    const filename = `conversoes_desdobro_serraria_${nowStr}.csv`;
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const handleExportSaldosCSV = () => {
     if (currentSaldosList.length === 0) return;
 
@@ -1019,6 +1119,41 @@ export default function SerrariaModule({
       return matchSearch && matchOwner;
     });
   }, [sawmillLogs, searchFilter, ownerFilter]);
+
+  // Aggregate KPI summary for the filtered process logs
+  const processLogsSummary = useMemo(() => {
+    let toraUsada = 0;
+    let serradoProduzido = 0;
+    let saidasVendas = 0;
+    let desdobroCount = 0;
+    let beneficiamentoCount = 0;
+
+    filteredProcessLogs.forEach(log => {
+      if (log.volumeTora > 0) {
+        toraUsada += log.volumeTora;
+        desdobroCount++;
+      }
+      if (log.volumeSerrado > 0) {
+        serradoProduzido += log.volumeSerrado;
+        if (log.volumeTora === 0 && log.rendimento > 0) {
+          beneficiamentoCount++;
+        }
+      } else if (log.volumeSerrado < 0) {
+        saidasVendas += Math.abs(log.volumeSerrado);
+      }
+    });
+
+    const rendimentoMedio = toraUsada > 0 ? (serradoProduzido / toraUsada) * 100 : 0;
+
+    return {
+      toraUsada,
+      serradoProduzido,
+      saidasVendas,
+      desdobroCount,
+      beneficiamentoCount,
+      rendimentoMedio
+    };
+  }, [filteredProcessLogs]);
 
   return (
     <div className="space-y-6 animate-fade-in" id="workspace-tab-serraria">
@@ -1936,18 +2071,68 @@ export default function SerrariaModule({
 
       {/* Production Logs / Decouple Desdobro History Logs */}
       <div className="bg-white p-5 border border-slate-200 rounded-2xl shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
           <div>
             <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-tight flex items-center gap-2">
               <History className="w-5 h-5 text-slate-600" />
-              <span>Histórico Analítico de Desdobro (Serramento)</span>
+              <span>Histórico Analítico de Desdobro & Conversões</span>
             </h3>
-            <p className="text-xs text-slate-400 mt-0.5">Audite o consumo de tora bruta, rendimento de processamento e estorne se necessário.</p>
+            <p className="text-xs text-slate-400 mt-0.5">Audite o consumo de tora bruta, volume de produto serrado obtido e rendimento da conversão.</p>
           </div>
-          <span className="font-mono text-[10px] font-bold bg-slate-105 text-slate-600 px-3 py-1 rounded-full border border-slate-200/50">
-            {filteredProcessLogs.length} Processamentos
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => handleExportDesdobroExcel(false)}
+              className="px-3 py-1.5 bg-emerald-800 hover:bg-emerald-900 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+              title="Exportar todo o histórico de desdobramentos, beneficiamentos e saídas para arquivo Excel (.CSV)"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-300" />
+              <span>Exportar Excel (.csv)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleExportDesdobroExcel(true)}
+              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer border border-slate-200"
+              title="Exportar apenas conversões (tora para serrado / beneficiamento)"
+            >
+              <Download className="w-3.5 h-3.5 text-slate-500" />
+              <span>Só Conversões</span>
+            </button>
+            <span className="font-mono text-[10px] font-bold bg-slate-100 text-slate-600 px-3 py-1.5 rounded-full border border-slate-200/50">
+              {filteredProcessLogs.length} Registros
+            </span>
+          </div>
         </div>
+
+        {/* Quick KPI Bar for Processed Conversions */}
+        {filteredProcessLogs.length > 0 && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-150 text-xs">
+            <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs">
+              <span className="text-[10px] font-bold uppercase text-slate-400 block">Toras Usadas</span>
+              <span className="text-sm font-mono font-black text-amber-900 block mt-0.5">
+                {processLogsSummary.toraUsada.toFixed(3)} <span className="text-[10px] font-normal text-slate-400">m³</span>
+              </span>
+            </div>
+            <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs">
+              <span className="text-[10px] font-bold uppercase text-slate-400 block">Serrado Produzido</span>
+              <span className="text-sm font-mono font-black text-emerald-900 block mt-0.5">
+                {processLogsSummary.serradoProduzido.toFixed(3)} <span className="text-[10px] font-normal text-slate-400">m³</span>
+              </span>
+            </div>
+            <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs">
+              <span className="text-[10px] font-bold uppercase text-slate-400 block">Aproveitamento Médio</span>
+              <span className="text-sm font-mono font-black text-slate-900 block mt-0.5">
+                {processLogsSummary.rendimentoMedio.toFixed(1)}%
+              </span>
+            </div>
+            <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs">
+              <span className="text-[10px] font-bold uppercase text-slate-400 block">Saídas / Vendas</span>
+              <span className="text-sm font-mono font-black text-rose-800 block mt-0.5">
+                {processLogsSummary.saidasVendas.toFixed(3)} <span className="text-[10px] font-normal text-slate-400">m³</span>
+              </span>
+            </div>
+          </div>
+        )}
 
         {filteredProcessLogs.length === 0 ? (
           <div className="p-8 text-center text-slate-400 bg-slate-50 border border-dashed border-slate-200 rounded-xl">
@@ -1961,7 +2146,7 @@ export default function SerrariaModule({
                   <th className="px-3.5 py-3">Data Operação</th>
                   <th className="px-3.5 py-3">Espécie Florestal</th>
                   <th className="px-3.5 py-3">Dono do Lote</th>
-                  <th className="px-3.5 py-3 text-center">Volume Tora</th>
+                  <th className="px-3.5 py-3 text-center">Volume Tora Usado</th>
                   <th className="px-3.5 py-3">Produto Saída</th>
                   <th className="px-3.5 py-3 text-right">Volume Serrado</th>
                   <th className="px-3.5 py-3 text-center">Rendimento Base</th>
@@ -2031,6 +2216,34 @@ export default function SerrariaModule({
                   );
                 })}
               </tbody>
+              <tfoot className="bg-slate-100/80 border-t-2 border-slate-300 font-bold text-slate-800 text-xs">
+                <tr>
+                  <td colSpan={3} className="px-3.5 py-3 uppercase tracking-wider font-extrabold text-slate-700">
+                    Totais Acumulados ({filteredProcessLogs.length} Lançamentos)
+                  </td>
+                  <td className="px-3.5 py-3 text-center font-mono font-extrabold text-amber-900">
+                    -{processLogsSummary.toraUsada.toFixed(3)} m³
+                  </td>
+                  <td className="px-3.5 py-3 text-slate-500 font-mono text-[10px]">
+                    {processLogsSummary.desdobroCount} desdobros
+                  </td>
+                  <td className="px-3.5 py-3 text-right font-mono font-extrabold text-emerald-900">
+                    +{processLogsSummary.serradoProduzido.toFixed(3)} m³
+                  </td>
+                  <td className="px-3.5 py-3 text-center font-mono font-extrabold text-slate-900">
+                    {processLogsSummary.rendimentoMedio.toFixed(1)}%
+                  </td>
+                  <td className="px-3.5 py-3 text-center no-print">
+                    <button
+                      type="button"
+                      onClick={() => handleExportDesdobroExcel(false)}
+                      className="text-[10px] text-emerald-800 hover:text-emerald-950 font-extrabold underline cursor-pointer"
+                    >
+                      Baixar Excel
+                    </button>
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         )}

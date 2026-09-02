@@ -150,7 +150,9 @@ export async function fetchDeductionsDb(): Promise<NfeDeduction[] | null> {
       dataImportacao: d.data_importacao,
       xmlFileName: d.xml_file_name || undefined,
       placaCaminhao: d.placa_caminhao || undefined,
-      tipoLancamento: d.tipo_lancamento as "Manual" | "XML"
+      tipoLancamento: d.tipo_lancamento as "Manual" | "XML",
+      serrariaDestino: d.serraria_destino || undefined,
+      patioDescarregamento: d.patio_descarregamento || undefined
     }));
   } catch (err) {
     console.warn("Erro ao carregar abatimentos do Supabase:", err);
@@ -177,7 +179,9 @@ export async function saveDeductionsInDb(deductions: NfeDeduction[]): Promise<bo
       data_importacao: d.dataImportacao,
       xml_file_name: d.xmlFileName || null,
       placa_caminhao: d.placaCaminhao || null,
-      tipo_lancamento: d.tipoLancamento || 'Manual'
+      tipo_lancamento: d.tipoLancamento || 'Manual',
+      serraria_destino: d.serrariaDestino || null,
+      patio_descarregamento: d.patioDescarregamento || null
     }));
 
     const { error } = await supabase
@@ -228,7 +232,9 @@ export async function fetchSawmillLogsDb(): Promise<SawmillProcessLog[] | null> 
       volumeSerrado: Number(s.volume_serrado),
       produtoSaida: s.produto_saida,
       rendimento: Number(s.rendimento),
-      dataProcessamento: s.data_processamento
+      dataProcessamento: s.data_processamento,
+      serraria: s.serraria || undefined,
+      patio: s.patio || undefined
     }));
   } catch (err) {
     console.warn("Erro ao carregar logs da serraria do Supabase:", err);
@@ -250,7 +256,9 @@ export async function saveSawmillLogsInDb(logs: SawmillProcessLog[]): Promise<bo
       volume_serrado: s.volumeSerrado,
       produto_saida: s.produtoSaida,
       rendimento: s.rendimento,
-      data_processamento: s.dataProcessamento
+      data_processamento: s.dataProcessamento,
+      serraria: s.serraria || null,
+      patio: s.patio || null
     }));
 
     const { error } = await supabase
