@@ -51,8 +51,11 @@ export interface NfeDeduction {
   xmlFileName?: string;
   placaCaminhao?: string; // transport license plate
   tipoLancamento?: "Manual" | "XML"; // manual launch or XML import
+  destinoTipo?: "serraria" | "galpao"; // Whether it went to Sawmill yard or External Warehouse (Galpão)
   serrariaDestino?: string; // e.g., "Serraria Principal (Matriz)", "Serraria 02", etc.
   patioDescarregamento?: string; // e.g., "Pátio 01 (Principal)", "Pátio 02", etc.
+  galpaoDestino?: string; // Name of external warehouse/shed (e.g. "Galpão Central - BR-163")
+  galpaoEndereco?: string; // Full address of the external shed
 }
 
 export interface SawmillProcessLog {

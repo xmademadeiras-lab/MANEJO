@@ -5,14 +5,19 @@
 
 import React, { useState, useEffect } from "react";
 import { Autex, NfeImportResult, NfeItem } from "../types";
-import { X, Check, AlertTriangle, FileText, Landmark, CheckCircle2, Factory, Warehouse, Truck, PlusCircle } from "lucide-react";
+import { X, Check, AlertTriangle, FileText, Landmark, CheckCircle2, Factory, Warehouse, Truck, PlusCircle, Building2, MapPin } from "lucide-react";
 import { 
   getRegisteredSerrarias, 
   getRegisteredPatios, 
   addRegisteredPatio, 
   addRegisteredSerraria 
 } from "../lib/sawmillsData";
+import { 
+  GalpaoEntity, 
+  getRegisteredGalpoes 
+} from "../lib/galpaoData";
 import ManagePatiosModal from "./ManagePatiosModal";
+import ManageGalpoesModal from "./ManageGalpoesModal";
 
 interface NfeMappingModalProps {
   isOpen: boolean;
@@ -23,9 +28,16 @@ interface NfeMappingModalProps {
     mappedItems: { item: NfeItem; autexItemId: string }[], 
     placaCaminhao: string,
     serrariaDestino?: string,
-    patioDescarregamento?: string
+    patioDescarregamento?: string,
+    destinoTipo?: "serraria" | "galpao",
+    galpaoDestino?: string,
+    galpaoEndereco?: string
   ) => void;
   onAddAutexItem?: (especie: string, dono: string, volumeAutorizado: number) => { id: string; especie: string; dono: string; volumeAutorizado: number } | null;
+  initialDestinoTipo?: "serraria" | "galpao";
+  initialSerraria?: string;
+  initialPatio?: string;
+  initialGalpaoId?: string;
 }
 
 export default function NfeMappingModal({
@@ -34,19 +46,27 @@ export default function NfeMappingModal({
   activeAutex,
   onClose,
   onConfirm,
-  onAddAutexItem
+  onAddAutexItem,
+  initialDestinoTipo = "serraria",
+  initialSerraria,
+  initialPatio,
+  initialGalpaoId
 }: NfeMappingModalProps) {
   // We keep local independent choices of species and owner for each item index
   const [selectedSpecies, setSelectedSpecies] = useState<Record<number, string>>({});
   const [selectedOwners, setSelectedOwners] = useState<Record<number, string>>({});
   const [placaCaminhao, setPlacaCaminhao] = useState("");
-  const [serrariaDestino, setSerrariaDestino] = useState("Serraria Principal (Matriz)");
-  const [patioDescarregamento, setPatioDescarregamento] = useState("Pátio 01 (Principal)");
+  const [destinoTipo, setDestinoTipo] = useState<"serraria" | "galpao">(initialDestinoTipo);
+  const [serrariaDestino, setSerrariaDestino] = useState(initialSerraria || "Serraria Principal (Matriz)");
+  const [patioDescarregamento, setPatioDescarregamento] = useState(initialPatio || "Pátio 01 (Principal)");
+  const [selectedGalpaoId, setSelectedGalpaoId] = useState(initialGalpaoId || "");
 
   // Lists of options
   const [registeredSerrarias, setRegisteredSerrarias] = useState<string[]>([]);
   const [registeredPatios, setRegisteredPatios] = useState<string[]>([]);
+  const [registeredGalpoes, setRegisteredGalpoes] = useState<GalpaoEntity[]>([]);
   const [isManagePatiosOpen, setIsManagePatiosOpen] = useState(false);
+  const [isManageGalpoesOpen, setIsManageGalpoesOpen] = useState(false);
   const [managePatiosTab, setManagePatiosTab] = useState<"patios" | "serrarias">("patios");
 
   // Track if modal was opened to handle initialization properly
@@ -58,17 +78,27 @@ export default function NfeMappingModal({
   const [newDono, setNewDono] = useState("");
   const [newVolume, setNewVolume] = useState("");
 
-  const refreshPatiosAndSerrarias = () => {
+  const refreshAllDestinations = () => {
     const serrarias = getRegisteredSerrarias();
     const patios = getRegisteredPatios();
+    const galpoes = getRegisteredGalpoes();
     setRegisteredSerrarias(serrarias);
     setRegisteredPatios(patios);
+    setRegisteredGalpoes(galpoes);
+    if (galpoes.length > 0 && !selectedGalpaoId) {
+      setSelectedGalpaoId(galpoes[0].id);
+    }
   };
 
   useEffect(() => {
-    const handler = () => refreshPatiosAndSerrarias();
-    window.addEventListener("patios_serrarias_updated", handler);
-    return () => window.removeEventListener("patios_serrarias_updated", handler);
+    const handler1 = () => refreshAllDestinations();
+    const handler2 = () => refreshAllDestinations();
+    window.addEventListener("patios_serrarias_updated", handler1);
+    window.addEventListener("galpoes_updated", handler2);
+    return () => {
+      window.removeEventListener("patios_serrarias_updated", handler1);
+      window.removeEventListener("galpoes_updated", handler2);
+    };
   }, []);
 
   // Reset mappings and load saved relationships when modal opens
@@ -77,13 +107,17 @@ export default function NfeMappingModal({
       setLastOpen(true);
       setPlacaCaminhao("");
       setRegisteringIndex(null);
+      setDestinoTipo(initialDestinoTipo || "serraria");
       
       const serrarias = getRegisteredSerrarias();
       const patios = getRegisteredPatios();
+      const galpoes = getRegisteredGalpoes();
       setRegisteredSerrarias(serrarias);
       setRegisteredPatios(patios);
-      if (serrarias.length > 0) setSerrariaDestino(serrarias[0]);
-      if (patios.length > 0) setPatioDescarregamento(patios[0]);
+      setRegisteredGalpoes(galpoes);
+      setSerrariaDestino(initialSerraria || (serrarias.length > 0 ? serrarias[0] : "Serraria Principal (Matriz)"));
+      setPatioDescarregamento(initialPatio || (patios.length > 0 ? patios[0] : "Pátio 01 (Principal)"));
+      setSelectedGalpaoId(initialGalpaoId || (galpoes.length > 0 ? galpoes[0].id : ""));
       
       const initialSpecies: Record<number, string> = {};
       const initialOwners: Record<number, string> = {};
@@ -250,14 +284,21 @@ export default function NfeMappingModal({
     }
 
     // Auto register patio and serraria if they are new
-    if (patioDescarregamento && patioDescarregamento.trim()) {
-      addRegisteredPatio(patioDescarregamento.trim());
+    if (destinoTipo === "serraria") {
+      if (patioDescarregamento && patioDescarregamento.trim()) {
+        addRegisteredPatio(patioDescarregamento.trim());
+      }
+      if (serrariaDestino && serrariaDestino.trim()) {
+        addRegisteredSerraria(serrariaDestino.trim());
+      }
+      onConfirm(finalMappings, placaCaminhao, serrariaDestino, patioDescarregamento, "serraria");
+    } else {
+      const gEntity = registeredGalpoes.find(g => g.id === selectedGalpaoId) || registeredGalpoes[0];
+      const gNome = gEntity?.nome || "Galpão Principal";
+      const gEnd = gEntity ? `${gEntity.endereco} (${gEntity.cidadeUf})` : "Endereço cadastrado";
+      onConfirm(finalMappings, placaCaminhao, undefined, undefined, "galpao", gNome, gEnd);
     }
-    if (serrariaDestino && serrariaDestino.trim()) {
-      addRegisteredSerraria(serrariaDestino.trim());
-    }
-
-    onConfirm(finalMappings, placaCaminhao, serrariaDestino, patioDescarregamento);
+    
     onClose();
   };
 
@@ -378,89 +419,183 @@ export default function NfeMappingModal({
           </div>
         </div>
 
-        {/* Truck, Sawmill destination and Unloading yard information section */}
-        <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-150 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-          {/* Veículo / Placa */}
-          <div>
-            <div className="flex items-center gap-1.5 mb-1">
-              <Truck className="w-3.5 h-3.5 text-slate-700" />
-              <label className="font-bold text-slate-700 text-[10px] uppercase tracking-wider">Veículo (Placa / Caminhão):</label>
+        {/* Truck & Destination Routing (Serraria vs Galpão Externo) */}
+        <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 space-y-3">
+          
+          {/* Destination Type Switcher */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-2 border-b border-slate-200/70">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Destino Físico das Toras:</span>
+              <div className="inline-flex bg-slate-200/80 p-0.5 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => setDestinoTipo("serraria")}
+                  className={`px-3 py-1 text-[11px] font-bold rounded-md transition flex items-center gap-1.5 cursor-pointer ${
+                    destinoTipo === "serraria"
+                      ? "bg-emerald-800 text-white shadow-xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <Factory className="w-3 h-3" />
+                  <span>Serraria (Pátio de Desdobro)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDestinoTipo("galpao")}
+                  className={`px-3 py-1 text-[11px] font-bold rounded-md transition flex items-center gap-1.5 cursor-pointer ${
+                    destinoTipo === "galpao"
+                      ? "bg-amber-600 text-white shadow-xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <Warehouse className="w-3 h-3" />
+                  <span>Galpão / Depósito (Outro Endereço)</span>
+                </button>
+              </div>
             </div>
-            <input
-              type="text"
-              placeholder="Ex: ABC-1234 / Scania"
-              value={placaCaminhao}
-              onChange={(e) => setPlacaCaminhao(e.target.value)}
-              className="w-full px-3 py-1.5 bg-white border border-slate-205 rounded-lg font-bold text-xs focus:ring-2 focus:ring-emerald-550/15 focus:border-emerald-600 focus:outline-none placeholder-slate-400 uppercase"
-            />
+
+            {destinoTipo === "galpao" ? (
+              <span className="text-[10px] text-amber-800 font-bold bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
+                ⚠️ Não entra no pátio da Serraria (armazenamento externo)
+              </span>
+            ) : (
+              <span className="text-[10px] text-emerald-800 font-bold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+                ✓ Entra no estoque bruto da Serraria para desdobro
+              </span>
+            )}
           </div>
 
-          {/* Serraria Destino */}
-          <div>
-            <div className="flex items-center justify-between gap-1.5 mb-1">
-              <div className="flex items-center gap-1.5">
-                <Factory className="w-3.5 h-3.5 text-emerald-700" />
-                <label className="font-bold text-slate-700 text-[10px] uppercase tracking-wider">Lançar para Serraria:</label>
+          {/* Dynamic Destination Inputs */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+            
+            {/* Veículo / Placa */}
+            <div>
+              <div className="flex items-center gap-1.5 mb-1">
+                <Truck className="w-3.5 h-3.5 text-slate-700" />
+                <label className="font-bold text-slate-700 text-[10px] uppercase tracking-wider">Veículo (Placa / Caminhão):</label>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setManagePatiosTab("serrarias");
-                  setIsManagePatiosOpen(true);
-                }}
-                className="text-[9px] font-bold text-emerald-700 hover:text-emerald-900 underline flex items-center gap-0.5 cursor-pointer"
-                title="Cadastrar nova Serraria"
-              >
-                <PlusCircle className="w-3 h-3" /> + Nova
-              </button>
+              <input
+                type="text"
+                placeholder="Ex: ABC-1234 / Scania"
+                value={placaCaminhao}
+                onChange={(e) => setPlacaCaminhao(e.target.value)}
+                className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 focus:outline-none placeholder-slate-400 uppercase"
+              />
             </div>
-            <input
-              type="text"
-              list="xml-serrarias-list"
-              value={serrariaDestino}
-              onChange={(e) => setSerrariaDestino(e.target.value)}
-              placeholder="Selecione ou digite a serraria"
-              className="w-full px-3 py-1.5 bg-white border border-slate-205 rounded-lg font-bold text-xs focus:ring-2 focus:ring-emerald-550/15 focus:border-emerald-600 focus:outline-none text-emerald-950"
-            />
-            <datalist id="xml-serrarias-list">
-              {registeredSerrarias.map(s => (
-                <option key={s} value={s} />
-              ))}
-            </datalist>
-          </div>
 
-          {/* Pátio de Descarregamento */}
-          <div>
-            <div className="flex items-center justify-between gap-1.5 mb-1">
-              <div className="flex items-center gap-1.5">
-                <Warehouse className="w-3.5 h-3.5 text-amber-700" />
-                <label className="font-bold text-slate-700 text-[10px] uppercase tracking-wider">Pátio do Descarregamento:</label>
+            {destinoTipo === "serraria" ? (
+              <>
+                {/* Serraria Destino */}
+                <div>
+                  <div className="flex items-center justify-between gap-1.5 mb-1">
+                    <div className="flex items-center gap-1.5">
+                      <Factory className="w-3.5 h-3.5 text-emerald-700" />
+                      <label className="font-bold text-slate-700 text-[10px] uppercase tracking-wider">Lançar para Serraria:</label>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setManagePatiosTab("serrarias");
+                        setIsManagePatiosOpen(true);
+                      }}
+                      className="text-[9px] font-bold text-emerald-700 hover:text-emerald-900 underline flex items-center gap-0.5 cursor-pointer"
+                      title="Cadastrar nova Serraria"
+                    >
+                      <PlusCircle className="w-3 h-3" /> + Nova
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    list="xml-serrarias-list"
+                    value={serrariaDestino}
+                    onChange={(e) => setSerrariaDestino(e.target.value)}
+                    placeholder="Selecione ou digite a serraria"
+                    className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 focus:outline-none text-emerald-950"
+                  />
+                  <datalist id="xml-serrarias-list">
+                    {registeredSerrarias.map(s => (
+                      <option key={s} value={s} />
+                    ))}
+                  </datalist>
+                </div>
+
+                {/* Pátio de Descarregamento */}
+                <div>
+                  <div className="flex items-center justify-between gap-1.5 mb-1">
+                    <div className="flex items-center gap-1.5">
+                      <Warehouse className="w-3.5 h-3.5 text-amber-700" />
+                      <label className="font-bold text-slate-700 text-[10px] uppercase tracking-wider">Pátio do Descarregamento:</label>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setManagePatiosTab("patios");
+                        setIsManagePatiosOpen(true);
+                      }}
+                      className="text-[9px] font-bold text-amber-800 hover:text-amber-950 underline flex items-center gap-0.5 cursor-pointer"
+                      title="Adicionar outro pátio para não misturar toras"
+                    >
+                      <PlusCircle className="w-3 h-3" /> + Novo Pátio
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    list="xml-patios-list"
+                    value={patioDescarregamento}
+                    onChange={(e) => setPatioDescarregamento(e.target.value)}
+                    placeholder="Selecione ou digite o pátio"
+                    className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs focus:ring-2 focus:ring-emerald-500/15 focus:border-emerald-600 focus:outline-none text-amber-950"
+                  />
+                  <datalist id="xml-patios-list">
+                    {registeredPatios.map(p => (
+                      <option key={p} value={p} />
+                    ))}
+                  </datalist>
+                </div>
+              </>
+            ) : (
+              /* Galpão Selector (Span 2 cols) */
+              <div className="md:col-span-2">
+                <div className="flex items-center justify-between gap-1.5 mb-1">
+                  <div className="flex items-center gap-1.5">
+                    <Building2 className="w-3.5 h-3.5 text-amber-600" />
+                    <label className="font-bold text-slate-700 text-[10px] uppercase tracking-wider">Galpão / Depósito de Destino (Outro Endereço):</label>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsManageGalpoesOpen(true)}
+                    className="text-[9px] font-bold text-amber-700 hover:text-amber-900 underline flex items-center gap-0.5 cursor-pointer"
+                    title="Cadastrar ou editar galpões com novos endereços"
+                  >
+                    <PlusCircle className="w-3 h-3" /> + Gerenciar Galpões / Endereços
+                  </button>
+                </div>
+                <select
+                  value={selectedGalpaoId}
+                  onChange={(e) => setSelectedGalpaoId(e.target.value)}
+                  className="w-full px-3 py-1.5 bg-white border border-amber-300 rounded-lg font-bold text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-600 focus:outline-none text-amber-950"
+                >
+                  {registeredGalpoes.map(g => (
+                    <option key={g.id} value={g.id}>
+                      {g.nome} — {g.endereco} ({g.cidadeUf})
+                    </option>
+                  ))}
+                </select>
+                {(() => {
+                  const g = registeredGalpoes.find(x => x.id === selectedGalpaoId);
+                  if (g) {
+                    return (
+                      <div className="text-[10px] text-amber-800 flex items-center gap-1 mt-1 truncate">
+                        <MapPin className="w-3 h-3 text-rose-500 shrink-0" />
+                        <span><strong>Endereço:</strong> {g.endereco} - {g.cidadeUf} {g.responsavel ? `• Resp: ${g.responsavel}` : ""}</span>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setManagePatiosTab("patios");
-                  setIsManagePatiosOpen(true);
-                }}
-                className="text-[9px] font-bold text-amber-800 hover:text-amber-950 underline flex items-center gap-0.5 cursor-pointer"
-                title="Adicionar outro pátio para não misturar toras"
-              >
-                <PlusCircle className="w-3 h-3" /> + Novo Pátio
-              </button>
-            </div>
-            <input
-              type="text"
-              list="xml-patios-list"
-              value={patioDescarregamento}
-              onChange={(e) => setPatioDescarregamento(e.target.value)}
-              placeholder="Selecione ou digite o pátio"
-              className="w-full px-3 py-1.5 bg-white border border-slate-205 rounded-lg font-bold text-xs focus:ring-2 focus:ring-emerald-550/15 focus:border-emerald-600 focus:outline-none text-amber-950"
-            />
-            <datalist id="xml-patios-list">
-              {registeredPatios.map(p => (
-                <option key={p} value={p} />
-              ))}
-            </datalist>
+            )}
+
           </div>
         </div>
 
@@ -730,7 +865,16 @@ export default function NfeMappingModal({
         isOpen={isManagePatiosOpen}
         onClose={() => setIsManagePatiosOpen(false)}
         initialTab={managePatiosTab}
-        onUpdated={refreshPatiosAndSerrarias}
+        onUpdated={refreshAllDestinations}
+      />
+
+      <ManageGalpoesModal
+        isOpen={isManageGalpoesOpen}
+        onClose={() => setIsManageGalpoesOpen(false)}
+        onSelectGalpao={(g) => {
+          setSelectedGalpaoId(g.id);
+          refreshAllDestinations();
+        }}
       />
     </div>
   );

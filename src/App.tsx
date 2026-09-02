@@ -11,6 +11,7 @@ import { parseNfeXml, generateSampleNfeXml } from "./utils/xmlParser";
 import CreateAutexModal from "./components/CreateAutexModal";
 import NfeMappingModal from "./components/NfeMappingModal";
 import SerrariaModule from "./components/SerrariaModule";
+import GalpaoModule from "./components/GalpaoModule";
 import LogisticaModule from "./components/LogisticaModule";
 import RelatoriosModule from "./components/RelatoriosModule";
 import BackupModule from "./components/BackupModule";
@@ -56,6 +57,7 @@ import {
   Info,
   Landmark,
   Truck,
+  Warehouse,
   Search,
   Printer,
   Menu,
@@ -84,7 +86,7 @@ export default function App() {
   const [deductions, setDeductions] = useState<NfeDeduction[]>([]);
   
   // Navigation Tabs state
-  const [activeTab, setActiveTab] = useState<"painel" | "lancamento" | "relatorios" | "serraria" | "logistica" | "backup" | "usuarios">("painel");
+  const [activeTab, setActiveTab] = useState<"painel" | "lancamento" | "relatorios" | "serraria" | "galpao" | "logistica" | "backup" | "usuarios">("painel");
   const [sawmillLogs, setSawmillLogs] = useState<SawmillProcessLog[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => localStorage.getItem("etw_sidebar_collapsed") === "true");
@@ -1150,7 +1152,15 @@ export default function App() {
   };
 
   // Confirming the mapped items from the NfeMappingModal
-  const handleConfirmMapping = (mappedItems: { item: NfeItem; autexItemId: string }[], placaCaminhao?: string) => {
+  const handleConfirmMapping = (
+    mappedItems: { item: NfeItem; autexItemId: string }[], 
+    placaCaminhao?: string,
+    serrariaDestino?: string,
+    patioDescarregamento?: string,
+    destinoTipo?: "serraria" | "galpao",
+    galpaoDestino?: string,
+    galpaoEndereco?: string
+  ) => {
     if (!xmlImportResult) return;
 
     // Check if any mapped item would exceed the available balance on the AUTEX
@@ -1180,7 +1190,12 @@ export default function App() {
           dataImportacao: new Date().toISOString(),
           xmlFileName: importedFileName || "Importação direta",
           placaCaminhao: placaCaminhao?.trim() || "Não Informado",
-          tipoLancamento: "XML"
+          tipoLancamento: "XML",
+          serrariaDestino: destinoTipo === "serraria" ? (serrariaDestino || "Serraria Principal (Matriz)") : undefined,
+          patioDescarregamento: destinoTipo === "serraria" ? (patioDescarregamento || "Pátio 01 (Principal)") : undefined,
+          destinoTipo: destinoTipo || "serraria",
+          galpaoDestino: destinoTipo === "galpao" ? (galpaoDestino || "Galpão Principal") : undefined,
+          galpaoEndereco: destinoTipo === "galpao" ? galpaoEndereco : undefined
         });
       }
     });
@@ -1679,6 +1694,25 @@ export default function App() {
           >
             <Factory className="w-4 h-4 shrink-0" />
             {!isSidebarCollapsed && <span>🪚 Módulo Serraria</span>}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("galpao");
+              setIsSidebarOpen(false);
+            }}
+            title="Módulo Galpão (Armazenamento Externo)"
+            className={`w-full flex items-center transition-all duration-150 rounded-xl cursor-pointer ${
+              isSidebarCollapsed ? "md:justify-center md:px-2 md:py-3.5 px-4 py-3 gap-3" : "gap-3 px-4 py-3"
+            } ${
+              activeTab === "galpao"
+                ? "bg-amber-600 text-white shadow-sm font-bold"
+                : "text-amber-200/80 hover:text-white hover:bg-amber-900/30"
+            }`}
+          >
+            <Warehouse className="w-4 h-4 shrink-0 text-amber-400" />
+            {!isSidebarCollapsed && <span>🏢 Módulo Galpão</span>}
           </button>
 
           <button
@@ -2879,6 +2913,16 @@ export default function App() {
               deductions={deductions}
               sawmillLogs={sawmillLogs}
               onSaveSawmillLogs={saveSawmillLogs}
+            />
+          )}
+
+          {/* DYNAMIC COMPONENT: TAB GALPAO (MÓDULO GALPÃO & DEPÓSITO EXTERNO) */}
+          {activeTab === "galpao" && (
+            <GalpaoModule 
+              autexList={autexList}
+              activeAutex={activeAutex}
+              deductions={deductions}
+              onSaveDeductions={saveDeductions}
             />
           )}
 

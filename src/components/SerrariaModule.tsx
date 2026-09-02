@@ -382,10 +382,13 @@ export default function SerrariaModule({
     }
   };
 
-  // 1. Dynamic Raw Logs calculation (Received logs = all deductions from management plan)
+  // 1. Dynamic Raw Logs calculation (Received logs = all deductions from management plan destined to Serraria)
   const receivedBySpecAndOwner = useMemo(() => {
     const list: { patio: string; serraria: string; especie: string; dono: string; volume: number; numLaunches: number }[] = [];
     deductions.forEach(ded => {
+      // Exclude logs sent directly to external warehouses (Galpões)
+      if (ded.destinoTipo === "galpao") return;
+
       const cleanEsp = ded.especie.trim();
       const cleanDono = ded.dono.trim();
       const cleanPatio = (ded.patioDescarregamento || registeredPatios[0] || "Pátio 01 (Principal)").trim();
