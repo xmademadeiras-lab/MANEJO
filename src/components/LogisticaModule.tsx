@@ -28,6 +28,7 @@ import {
   PlusCircle
 } from "lucide-react";
 import { getRegisteredSerrarias, getRegisteredPatios } from "../lib/sawmillsData";
+import { saveTrucksInDb } from "../lib/supabase";
 import ManagePatiosModal from "./ManagePatiosModal";
 
 interface LogisticaModuleProps {
@@ -127,10 +128,11 @@ export default function LogisticaModule({ deductions, onSaveDeductions }: Logist
     };
   }, []);
 
-  // Save trucks list to local storage
+  // Save trucks list to local storage and Supabase
   const saveTrucks = (list: CustomTruckData[]) => {
     setTrucksList(list);
     localStorage.setItem("logistica_trucks_directory", JSON.stringify(list));
+    void saveTrucksInDb(list);
   };
 
   // Register new truck

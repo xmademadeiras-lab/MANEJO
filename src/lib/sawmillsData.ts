@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { saveDirectoriesInDb } from "./supabase";
+
 /**
  * Directory and storage helpers for Sawmills (Serrarias) and Yards (Pátios de Descarregamento)
  */
@@ -34,11 +36,14 @@ export function getRegisteredSerrarias(): string[] {
   return DEFAULT_SERRARIAS;
 }
 
-export function saveRegisteredSerrarias(list: string[]): void {
+export function saveRegisteredSerrarias(list: string[], syncRemote = true): void {
   try {
     const cleanList = Array.from(new Set(list.map(s => s.trim()).filter(Boolean)));
     localStorage.setItem("manejo_serrarias_directory", JSON.stringify(cleanList));
     window.dispatchEvent(new Event("patios_serrarias_updated"));
+    if (syncRemote) {
+      void saveDirectoriesInDb({ sawmills: cleanList });
+    }
   } catch (e) {
     console.error("Error saving serrarias directory:", e);
   }
@@ -68,11 +73,14 @@ export function getRegisteredPatios(): string[] {
   return DEFAULT_PATIOS;
 }
 
-export function saveRegisteredPatios(list: string[]): void {
+export function saveRegisteredPatios(list: string[], syncRemote = true): void {
   try {
     const cleanList = Array.from(new Set(list.map(p => p.trim()).filter(Boolean)));
     localStorage.setItem("manejo_patios_directory", JSON.stringify(cleanList));
     window.dispatchEvent(new Event("patios_serrarias_updated"));
+    if (syncRemote) {
+      void saveDirectoriesInDb({ yards: cleanList });
+    }
   } catch (e) {
     console.error("Error saving patios directory:", e);
   }

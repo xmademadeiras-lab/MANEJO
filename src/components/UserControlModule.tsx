@@ -5,6 +5,7 @@
 
 import React, { useState, useMemo, useEffect } from "react";
 import { UserAccount, SecurityLog } from "../types";
+import { fetchUserAccountsDb, saveUserAccountInDb, deleteUserAccountInDb } from "../lib/supabase";
 import { 
   Users, 
   Shield, 
@@ -115,9 +116,10 @@ export default function UserControlModule({
     "Controle de Usuários"
   ];
 
-  // Load from local storage or initialize defaults
+  // Load from local storage and sync with Supabase
   useEffect(() => {
     const saved = localStorage.getItem("etw_user_accounts");
+    let localList: UserAccount[] = DEFAULT_USERS;
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as UserAccount[];
@@ -134,19 +136,25 @@ export default function UserControlModule({
             dataCriacao: "2026-06-03",
             permissoes: ["Visualização Completa", "Lançar Abates", "Configurar Logística", "Industrializar Serraria", "Efetuar Backup", "Controle de Usuários"]
           };
-          const updated = [costaAccount, ...parsed];
-          localStorage.setItem("etw_user_accounts", JSON.stringify(updated));
-          setUsers(updated);
+          localList = [costaAccount, ...parsed];
+          localStorage.setItem("etw_user_accounts", JSON.stringify(localList));
         } else {
-          setUsers(parsed);
+          localList = parsed;
         }
-      } catch (e) {
-        setUsers(DEFAULT_USERS);
+      } catch {
+        localList = DEFAULT_USERS;
       }
     } else {
-      setUsers(DEFAULT_USERS);
       localStorage.setItem("etw_user_accounts", JSON.stringify(DEFAULT_USERS));
     }
+    setUsers(localList);
+
+    fetchUserAccountsDb().then((remoteUsers) => {
+      if (remoteUsers && remoteUsers.length > 0) {
+        setUsers(remoteUsers);
+        localStorage.setItem("etw_user_accounts", JSON.stringify(remoteUsers));
+      }
+    });
   }, []);
 
   const saveToStorage = (updatedUsers: UserAccount[]) => {
@@ -164,7 +172,7 @@ export default function UserControlModule({
   }, [users, searchTerm]);
 
   // Toggle user activation status
-  const handleToggleStatus = (id: string) => {
+  const handleToggleStatus = async (id: string) => {
     const userToToggle = users.find(u => u.id === id);
     if (!userToToggle) return;
 
@@ -183,12 +191,15 @@ export default function UserControlModule({
 
     saveToStorage(updated);
     const updatedUser = updated.find(u => u.id === id);
+    if (updatedUser) {
+      await saveUserAccountInDb(updatedUser);
+    }
     onAddSecurityLog(
       "EDITAR USUÁRIO",
       `${updatedUser?.ativo ? "Ativou" : "Desativou"} acesso de operador para ${userToToggle.username}`,
       "sucesso"
     );
-    setFeedback({ text: `Status de ${userToToggle.nome} alterado com sucesso!`, type: "success" });
+    setFeedback({ text: `Status de ${userToToggle.nome} atualizado e salvo!`, type: "success" });
   };
 
   // Switch role template perms
@@ -203,7 +214,7 @@ export default function UserControlModule({
   }, [formRole]);
 
   // Create new user submit
-  const handleCreateUserSubmit = (e: React.FormEvent) => {
+  const handleCreateUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     const cleanUsername = formUsername.trim().replace(/[^a-zA-Z0-9__-]/g, "");
@@ -236,9 +247,15 @@ export default function UserControlModule({
 
     const updated = [...users, newUser];
     saveToStorage(updated);
+    const savedRemote = await saveUserAccountInDb(newUser);
 
     onAddSecurityLog("ADICIONAR USUÁRIO", `Criou novo usuário "${cleanUsername}" (${formRole})`, "sucesso");
-    setFeedback({ text: `Usuário ${newUser.nome} criado com sucesso!`, type: "success" });
+    setFeedback({
+      text: savedRemote
+        ? `Usuário ${newUser.nome} criado e salvo no banco de dados Supabase!`
+        : `Usuário ${newUser.nome} criado e salvo localmente!`,
+      type: "success"
+    });
 
     // Clean form
     setFormUsername("");
@@ -273,7 +290,7 @@ export default function UserControlModule({
   };
 
   // Delete user
-  const handleDeleteUser = (id: string) => {
+  const handleDeleteUser = async (id: string) => {
     const target = users.find(u => u.id === id);
     if (!target) return;
 
@@ -285,6 +302,7 @@ export default function UserControlModule({
     if (confirm(`Deseja realmente remover permanentemente o usuário ${target.nome}?`)) {
       const updated = users.filter(u => u.id !== id);
       saveToStorage(updated);
+      await deleteUserAccountInDb(id);
       onAddSecurityLog("EXCLUIR USUÁRIO", `Deletou o usuário de login "${target.username}"`, "alerta");
       setFeedback({ text: `Usuário ${target.nome} excluído.`, type: "success" });
     }

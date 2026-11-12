@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { saveGalpaoDispatchesInDb, saveGalpoesInDb } from "./supabase";
+
 export interface GalpaoEntity {
   id: string;
   nome: string;
@@ -80,10 +82,13 @@ export function getRegisteredGalpoes(): GalpaoEntity[] {
   return DEFAULT_GALPOES;
 }
 
-export function saveRegisteredGalpoes(list: GalpaoEntity[]): void {
+export function saveRegisteredGalpoes(list: GalpaoEntity[], syncRemote = true): void {
   try {
     localStorage.setItem("manejo_galpoes_directory", JSON.stringify(list));
     window.dispatchEvent(new Event("galpoes_updated"));
+    if (syncRemote) {
+      void saveGalpoesInDb(list);
+    }
   } catch (e) {
     console.error("Error saving galpoes directory:", e);
   }
@@ -125,10 +130,13 @@ export function getGalpaoDispatches(): GalpaoDispatchLog[] {
   return [];
 }
 
-export function saveGalpaoDispatches(list: GalpaoDispatchLog[]): void {
+export function saveGalpaoDispatches(list: GalpaoDispatchLog[], syncRemote = true): void {
   try {
     localStorage.setItem("manejo_galpao_dispatches", JSON.stringify(list));
     window.dispatchEvent(new Event("galpao_dispatches_updated"));
+    if (syncRemote) {
+      void saveGalpaoDispatchesInDb(list);
+    }
   } catch (e) {
     console.error("Error saving galpao dispatches:", e);
   }

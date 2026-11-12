@@ -65,9 +65,35 @@ export default function BackupModule({
       const trucksDirectory = savedTrucksRaw ? JSON.parse(savedTrucksRaw) : [];
       const savedUsersRaw = localStorage.getItem("etw_user_accounts");
       const userAccounts = savedUsersRaw ? JSON.parse(savedUsersRaw) : [];
+      const galpoesRaw = localStorage.getItem("manejo_galpoes_directory");
+      const galpoesDirectory = galpoesRaw ? JSON.parse(galpoesRaw) : [];
+      const dispatchesRaw = localStorage.getItem("manejo_galpao_dispatches");
+      const galpaoDispatches = dispatchesRaw ? JSON.parse(dispatchesRaw) : [];
+      const sawmillsRaw = localStorage.getItem("manejo_serrarias_directory");
+      const sawmillsDirectory = sawmillsRaw ? JSON.parse(sawmillsRaw) : [];
+      const yardsRaw = localStorage.getItem("manejo_patios_directory");
+      const yardsDirectory = yardsRaw ? JSON.parse(yardsRaw) : [];
+
+      const userWorkspaces: Record<string, { events: any[]; notes: any[]; checklists: any[] }> = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i) || "";
+        if (key.startsWith("etw_user_events_")) {
+          const uname = key.replace("etw_user_events_", "");
+          userWorkspaces[uname] = userWorkspaces[uname] || { events: [], notes: [], checklists: [] };
+          userWorkspaces[uname].events = JSON.parse(localStorage.getItem(key) || "[]");
+        } else if (key.startsWith("etw_user_notes_")) {
+          const uname = key.replace("etw_user_notes_", "");
+          userWorkspaces[uname] = userWorkspaces[uname] || { events: [], notes: [], checklists: [] };
+          userWorkspaces[uname].notes = JSON.parse(localStorage.getItem(key) || "[]");
+        } else if (key.startsWith("etw_user_checklists_")) {
+          const uname = key.replace("etw_user_checklists_", "");
+          userWorkspaces[uname] = userWorkspaces[uname] || { events: [], notes: [], checklists: [] };
+          userWorkspaces[uname].checklists = JSON.parse(localStorage.getItem(key) || "[]");
+        }
+      }
 
       const backupObj = {
-        version: "1.1.0",
+        version: "1.2.0",
         exportedAt: new Date().toISOString(),
         exportedBy: currentUser,
         analytics: {
@@ -80,7 +106,12 @@ export default function BackupModule({
           deductions,
           sawmillLogs,
           trucksDirectory,
-          userAccounts
+          userAccounts,
+          galpoesDirectory,
+          galpaoDispatches,
+          sawmillsDirectory,
+          yardsDirectory,
+          userWorkspaces
         }
       };
 
@@ -114,13 +145,21 @@ export default function BackupModule({
         throw new Error("Formato de backup inválido. Chave 'data' não encontrada.");
       }
 
-      const { autexList: impAutex, deductions: impDeductions, sawmillLogs: impSawmill, trucksDirectory, userAccounts } = parsed.data;
-
-      let countLoaded = 0;
+      const {
+        autexList: impAutex,
+        deductions: impDeductions,
+        sawmillLogs: impSawmill,
+        trucksDirectory,
+        userAccounts,
+        galpoesDirectory,
+        galpaoDispatches,
+        sawmillsDirectory,
+        yardsDirectory,
+        userWorkspaces
+      } = parsed.data;
 
       if (Array.isArray(impAutex)) {
         onRestoreAutexList(impAutex);
-        countLoaded += impAutex.length;
       }
       if (Array.isArray(impDeductions)) {
         onRestoreDeductions(impDeductions);
@@ -134,9 +173,28 @@ export default function BackupModule({
       if (Array.isArray(userAccounts)) {
         localStorage.setItem("etw_user_accounts", JSON.stringify(userAccounts));
       }
+      if (Array.isArray(galpoesDirectory)) {
+        localStorage.setItem("manejo_galpoes_directory", JSON.stringify(galpoesDirectory));
+      }
+      if (Array.isArray(galpaoDispatches)) {
+        localStorage.setItem("manejo_galpao_dispatches", JSON.stringify(galpaoDispatches));
+      }
+      if (Array.isArray(sawmillsDirectory)) {
+        localStorage.setItem("manejo_serrarias_directory", JSON.stringify(sawmillsDirectory));
+      }
+      if (Array.isArray(yardsDirectory)) {
+        localStorage.setItem("manejo_patios_directory", JSON.stringify(yardsDirectory));
+      }
+      if (userWorkspaces && typeof userWorkspaces === "object") {
+        Object.entries(userWorkspaces).forEach(([uname, ws]: [string, any]) => {
+          if (Array.isArray(ws?.events)) localStorage.setItem(`etw_user_events_${uname}`, JSON.stringify(ws.events));
+          if (Array.isArray(ws?.notes)) localStorage.setItem(`etw_user_notes_${uname}`, JSON.stringify(ws.notes));
+          if (Array.isArray(ws?.checklists)) localStorage.setItem(`etw_user_checklists_${uname}`, JSON.stringify(ws.checklists));
+        });
+      }
 
       setMessage({ 
-        text: `Backup restaurado com sucesso! Carregados contratos e lançamentos correspondentes.`, 
+        text: `Backup restaurado com sucesso! Carregados contratos, contas, eventos, notas, checklists e lançamentos.`, 
         type: "success" 
       });
       onAddSecurityLog("RESTAURAR BACKUP", `Restaurou backup datado de ${parsed.exportedAt || "data desconhecida"} exportado por ${parsed.exportedBy || "desconhecido"}`, "sucesso");

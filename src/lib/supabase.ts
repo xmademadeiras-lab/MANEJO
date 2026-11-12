@@ -3,191 +3,228 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { createClient } from "@supabase/supabase-js";
-import { Autex, AutexItem, NfeDeduction, SawmillProcessLog, SecurityLog, UserAccount } from "../types";
+import {
+  Autex,
+  NfeDeduction,
+  SawmillProcessLog,
+  SecurityLog,
+  TruckEntity,
+  UserAccount,
+  UserChecklist,
+  UserEvent,
+  UserNote,
+} from "../types";
+import type { GalpaoDispatchLog, GalpaoEntity } from "./galpaoData";
 
-// Grab Supabase environment configs if available
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+export interface SupabaseStatusResponse {
+  configured: boolean;
+  connected: boolean;
+  hasServerSecrets: boolean;
+  latency?: number;
+  missingTables?: string[];
+  message: string;
+}
 
-// Exporting configuration existence checks
-export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
+export interface SupabaseBootstrapPayload {
+  autexList: Autex[] | null;
+  deductions: NfeDeduction[] | null;
+  sawmillLogs: SawmillProcessLog[] | null;
+  userAccounts: UserAccount[] | null;
+  securityLogs: SecurityLog[] | null;
+  trucks: TruckEntity[] | null;
+  galpoes: GalpaoEntity[] | null;
+  galpaoDispatches: GalpaoDispatchLog[] | null;
+  sawmills: string[] | null;
+  yards: string[] | null;
+  nfeMappings: Record<string, { especie: string; dono: string }> | null;
+}
 
-export const supabase = isSupabaseConfigured
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : null;
+export interface UserWorkspacePayload {
+  events: UserEvent[];
+  notes: UserNote[];
+  checklists: UserChecklist[];
+}
 
-/**
- * Fetch all AUTEX contracts from Supabase, including their nested wood item records.
- */
-export async function fetchAutexListDb(): Promise<Autex[] | null> {
-  if (!supabase) return null;
+async function apiJson<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(url, {
+    headers: {
+      "Content-Type": "application/json",
+      ...(options?.headers || {}),
+    },
+    ...options,
+  });
+
+  const text = await response.text();
+  let parsed: any = null;
   try {
-    // Fetch principal autex data
-    const { data: autexData, error: autexErr } = await supabase
-      .from("autex")
-      .select("*");
-    if (autexErr) throw autexErr;
+    parsed = text ? JSON.parse(text) : null;
+  } catch {
+    parsed = { message: text };
+  }
 
-    // Fetch individual authorized wood spec items
-    const { data: itemsData, error: itemsErr } = await supabase
-      .from("autex_items")
-      .select("*");
-    if (itemsErr) throw itemsErr;
+  if (!response.ok) {
+    throw new Error(parsed?.error || parsed?.message || `HTTP ${response.status}`);
+  }
+  return parsed as T;
+}
 
-    // Format clean Typescript typed structure matching state models
-    const list: Autex[] = (autexData || []).map(a => {
-      const matchingItems: AutexItem[] = (itemsData || [])
-        .filter(i => i.autex_id === a.id)
-        .map(i => ({
-          id: i.id,
-          especie: i.especie,
-          volumeAutorizado: Number(i.volume_autorizado),
-          dono: i.dono
-        }));
-      
-      return {
-        id: a.id,
-        numero: a.numero,
-        descricao: a.descricao || "",
-        detentores: a.detentores || [],
-        items: matchingItems,
-        dataCriacao: a.data_criacao
-      };
+export async function checkSupabaseConnection(): Promise<{
+  success: boolean;
+  configured: boolean;
+  hasServerSecrets?: boolean;
+  missingTables?: string[];
+  message: string;
+  latency?: number;
+}> {
+  try {
+    const status = await apiJson<SupabaseStatusResponse>("/api/supabase/status");
+    return {
+      success: status.connected,
+      configured: status.configured,
+      hasServerSecrets: status.hasServerSecrets,
+      missingTables: status.missingTables,
+      message: status.message,
+      latency: status.latency,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      configured: false,
+      message: `Falha ao verificar status do servidor Supabase: ${err?.message || err}`,
+    };
+  }
+}
+
+export async function fetchMigrationSql(): Promise<string> {
+  const res = await fetch("/api/supabase/migration-sql");
+  if (!res.ok) {
+    throw new Error("Não foi possível carregar o script SQL de migração.");
+  }
+  return res.text();
+}
+
+export async function fetchBootstrapFromServer(): Promise<SupabaseBootstrapPayload | null> {
+  try {
+    return await apiJson<SupabaseBootstrapPayload>("/api/supabase/bootstrap");
+  } catch (err) {
+    console.warn("Bootstrap Supabase indisponível (rodando offline-first):", err);
+    return null;
+  }
+}
+
+export async function loginWithSupabase(
+  username: string,
+  password: string
+): Promise<{
+  handled: boolean;
+  authenticated: boolean;
+  user?: UserAccount;
+  error?: string;
+}> {
+  try {
+    const response = await fetch("/api/supabase/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
     });
 
-    return list;
-  } catch (err) {
-    console.warn("Erro ao carregar AUTEX do Supabase:", err);
-    return null;
-  }
-}
-
-/**
- * Saves or updates a specific AUTEX contract, cascading into its items.
- */
-export async function saveAutexInDb(autex: Autex): Promise<boolean> {
-  if (!supabase) return false;
-  try {
-    const { error: autexErr } = await supabase
-      .from("autex")
-      .upsert({
-        id: autex.id,
-        numero: autex.numero,
-        descricao: autex.descricao,
-        detentores: autex.detentores,
-        data_criacao: autex.dataCriacao
-      });
-    if (autexErr) throw autexErr;
-
-    // Delete existing item associations for safety prior to batch insert matching local list definition
-    const { error: deleteErr } = await supabase
-      .from("autex_items")
-      .delete()
-      .eq("autex_id", autex.id);
-    if (deleteErr) throw deleteErr;
-
-    if (autex.items.length > 0) {
-      const itemsToInsert = autex.items.map(item => ({
-        id: item.id,
-        autex_id: autex.id,
-        especie: item.especie,
-        volume_autorizado: item.volumeAutorizado,
-        dono: item.dono
-      }));
-      const { error: itemsErr } = await supabase
-        .from("autex_items")
-        .insert(itemsToInsert);
-      if (itemsErr) throw itemsErr;
+    if (response.status === 503) {
+      return { handled: false, authenticated: false };
     }
 
+    const data = await response.json();
+    if (!response.ok) {
+      return {
+        handled: true,
+        authenticated: false,
+        error: data?.error || "Credenciais inválidas.",
+      };
+    }
+
+    return {
+      handled: true,
+      authenticated: Boolean(data.authenticated),
+      user: data.user,
+    };
+  } catch {
+    return { handled: false, authenticated: false };
+  }
+}
+
+export async function registerWithSupabase(payload: {
+  nome: string;
+  username: string;
+  cargo: string;
+  password: string;
+}): Promise<{
+  handled: boolean;
+  registered: boolean;
+  user?: UserAccount;
+  error?: string;
+}> {
+  try {
+    const response = await fetch("/api/supabase/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (response.status === 503) {
+      return { handled: false, registered: false };
+    }
+
+    const data = await response.json();
+    if (!response.ok) {
+      return {
+        handled: true,
+        registered: false,
+        error: data?.error || "Não foi possível criar a conta.",
+      };
+    }
+
+    return {
+      handled: true,
+      registered: Boolean(data.registered),
+      user: data.user,
+    };
+  } catch {
+    return { handled: false, registered: false };
+  }
+}
+
+// --- AUTEX ---
+export async function saveAutexInDb(autex: Autex): Promise<boolean> {
+  try {
+    await apiJson("/api/supabase/autex", {
+      method: "POST",
+      body: JSON.stringify(autex),
+    });
     return true;
   } catch (err) {
-    console.warn(`Erro ao salvar AUTEX ${autex.numero} no Supabase:`, err);
+    console.warn(`Erro ao salvar AUTEX ${autex.numero}:`, err);
     return false;
   }
 }
 
-/**
- * Delete an AUTEX and its referenced items.
- */
 export async function deleteAutexInDb(autexId: string): Promise<boolean> {
-  if (!supabase) return false;
   try {
-    const { error } = await supabase
-      .from("autex")
-      .delete()
-      .eq("id", autexId);
-    if (error) throw error;
+    await apiJson(`/api/supabase/autex/${encodeURIComponent(autexId)}`, {
+      method: "DELETE",
+    });
     return true;
   } catch (err) {
-    console.warn(`Erro ao deletar AUTEX ${autexId} no Supabase:`, err);
+    console.warn(`Erro ao deletar AUTEX ${autexId}:`, err);
     return false;
   }
 }
 
-/**
- * Fetch all NF-e deduction logs from Supabase.
- */
-export async function fetchDeductionsDb(): Promise<NfeDeduction[] | null> {
-  if (!supabase) return null;
-  try {
-    const { data, error } = await supabase
-      .from("deductions")
-      .select("*");
-    if (error) throw error;
-
-    return (data || []).map(d => ({
-      id: d.id,
-      autexId: d.autex_id,
-      autexItemId: d.autex_item_id,
-      numeroNfe: d.numero_nfe,
-      chaveAcesso: d.chave_acesso || undefined,
-      dataEmissao: d.data_emissao,
-      dono: d.dono,
-      especie: d.especie,
-      volume: Number(d.volume),
-      dataImportacao: d.data_importacao,
-      xmlFileName: d.xml_file_name || undefined,
-      placaCaminhao: d.placa_caminhao || undefined,
-      tipoLancamento: d.tipo_lancamento as "Manual" | "XML",
-      serrariaDestino: d.serraria_destino || undefined,
-      patioDescarregamento: d.patio_descarregamento || undefined
-    }));
-  } catch (err) {
-    console.warn("Erro ao carregar abatimentos do Supabase:", err);
-    return null;
-  }
-}
-
-/**
- * Save deduction logs to Supabase database.
- */
+// --- DEDUCTIONS ---
 export async function saveDeductionsInDb(deductions: NfeDeduction[]): Promise<boolean> {
-  if (!supabase) return false;
   try {
-    const dbPayload = deductions.map(d => ({
-      id: d.id,
-      autex_id: d.autexId,
-      autex_item_id: d.autexItemId,
-      numero_nfe: d.numeroNfe,
-      chave_acesso: d.chaveAcesso || null,
-      data_emissao: d.dataEmissao,
-      dono: d.dono,
-      especie: d.especie,
-      volume: d.volume,
-      data_importacao: d.dataImportacao,
-      xml_file_name: d.xmlFileName || null,
-      placa_caminhao: d.placaCaminhao || null,
-      tipo_lancamento: d.tipoLancamento || 'Manual',
-      serraria_destino: d.serrariaDestino || null,
-      patio_descarregamento: d.patioDescarregamento || null
-    }));
-
-    const { error } = await supabase
-      .from("deductions")
-      .upsert(dbPayload);
-    if (error) throw error;
+    await apiJson("/api/supabase/deductions", {
+      method: "POST",
+      body: JSON.stringify(deductions),
+    });
     return true;
   } catch (err) {
     console.warn("Erro ao salvar abatimentos no Supabase:", err);
@@ -195,76 +232,25 @@ export async function saveDeductionsInDb(deductions: NfeDeduction[]): Promise<bo
   }
 }
 
-/**
- * Delete a deduction record.
- */
 export async function deleteDeductionInDb(id: string): Promise<boolean> {
-  if (!supabase) return false;
   try {
-    const { error } = await supabase
-      .from("deductions")
-      .delete()
-      .eq("id", id);
-    if (error) throw error;
+    await apiJson(`/api/supabase/deductions/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
     return true;
   } catch (err) {
-    console.warn("Erro ao excluir faturamento do Supabase:", err);
+    console.warn("Erro ao excluir faturamento no Supabase:", err);
     return false;
   }
 }
 
-/**
- * Fetch sawmill industrial logs from Supabase.
- */
-export async function fetchSawmillLogsDb(): Promise<SawmillProcessLog[] | null> {
-  if (!supabase) return null;
-  try {
-    const { data, error } = await supabase
-      .from("sawmill_logs")
-      .select("*");
-    if (error) throw error;
-
-    return (data || []).map(s => ({
-      id: s.id,
-      especie: s.especie,
-      dono: s.dono,
-      volumeTora: Number(s.volume_tora),
-      volumeSerrado: Number(s.volume_serrado),
-      produtoSaida: s.produto_saida,
-      rendimento: Number(s.rendimento),
-      dataProcessamento: s.data_processamento,
-      serraria: s.serraria || undefined,
-      patio: s.patio || undefined
-    }));
-  } catch (err) {
-    console.warn("Erro ao carregar logs da serraria do Supabase:", err);
-    return null;
-  }
-}
-
-/**
- * Save sawmill logs list to Supabase.
- */
+// --- SAWMILL LOGS ---
 export async function saveSawmillLogsInDb(logs: SawmillProcessLog[]): Promise<boolean> {
-  if (!supabase) return false;
   try {
-    const dbPayload = logs.map(s => ({
-      id: s.id,
-      especie: s.especie,
-      dono: s.dono,
-      volume_tora: s.volumeTora,
-      volume_serrado: s.volumeSerrado,
-      produto_saida: s.produtoSaida,
-      rendimento: s.rendimento,
-      data_processamento: s.dataProcessamento,
-      serraria: s.serraria || null,
-      patio: s.patio || null
-    }));
-
-    const { error } = await supabase
-      .from("sawmill_logs")
-      .upsert(dbPayload);
-    if (error) throw error;
+    await apiJson("/api/supabase/sawmill-logs", {
+      method: "POST",
+      body: JSON.stringify(logs),
+    });
     return true;
   } catch (err) {
     console.warn("Erro ao salvar logs da serraria no Supabase:", err);
@@ -272,67 +258,25 @@ export async function saveSawmillLogsInDb(logs: SawmillProcessLog[]): Promise<bo
   }
 }
 
-/**
- * Delete a single sawmill log record.
- */
 export async function deleteSawmillLogInDb(id: string): Promise<boolean> {
-  if (!supabase) return false;
   try {
-    const { error } = await supabase
-      .from("sawmill_logs")
-      .delete()
-      .eq("id", id);
-    if (error) throw error;
+    await apiJson(`/api/supabase/sawmill-logs/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
     return true;
   } catch (err) {
-    console.warn("Erro ao excluir log da serraria do Supabase:", err);
+    console.warn("Erro ao excluir log da serraria no Supabase:", err);
     return false;
   }
 }
 
-/**
- * Fetch all system audit security logs.
- */
-export async function fetchSecurityLogsDb(): Promise<SecurityLog[] | null> {
-  if (!supabase) return null;
-  try {
-    const { data, error } = await supabase
-      .from("security_logs")
-      .select("*")
-      .order("timestamp", { ascending: false });
-    if (error) throw error;
-
-    return (data || []).map(s => ({
-      id: s.id,
-      timestamp: s.timestamp,
-      usuario: s.usuario,
-      acao: s.acao,
-      detalhes: s.detalhes || "",
-      status: s.status as "sucesso" | "erro" | "alerta"
-    }));
-  } catch (err) {
-    console.warn("Erro ao carregar logs de segurança do Supabase:", err);
-    return null;
-  }
-}
-
-/**
- * Save a new single safety audit event.
- */
+// --- SECURITY LOGS ---
 export async function saveSecurityLogInDb(log: SecurityLog): Promise<boolean> {
-  if (!supabase) return false;
   try {
-    const { error } = await supabase
-      .from("security_logs")
-      .insert({
-        id: log.id,
-        timestamp: log.timestamp,
-        usuario: log.usuario,
-        acao: log.acao,
-        detalhes: log.detalhes,
-        status: log.status
-      });
-    if (error) throw error;
+    await apiJson("/api/supabase/security-logs", {
+      method: "POST",
+      body: JSON.stringify(log),
+    });
     return true;
   } catch (err) {
     console.warn("Erro ao registrar log de segurança no Supabase:", err);
@@ -340,54 +284,32 @@ export async function saveSecurityLogInDb(log: SecurityLog): Promise<boolean> {
   }
 }
 
-/**
- * Fetch system active user accounts database list.
- */
-export async function fetchUserAccountsDb(): Promise<UserAccount[] | null> {
-  if (!supabase) return null;
+export async function clearSecurityLogsInDb(): Promise<boolean> {
   try {
-    const { data, error } = await supabase
-      .from("user_accounts")
-      .select("*");
-    if (error) throw error;
+    await apiJson("/api/supabase/security-logs", {
+      method: "DELETE",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
-    return (data || []).map(u => ({
-      id: u.id,
-      username: u.username,
-      senha: u.senha || undefined,
-      nome: u.nome,
-      cargo: u.cargo,
-      role: u.role as "admin" | "operator" | "auditor",
-      ativo: u.ativo,
-      dataCriacao: u.data_creacao || u.data_criacao, // fallback if named differently
-      permissoes: u.permissoes || []
-    }));
-  } catch (err) {
-    console.warn("Erro ao carregar contas de usuários do Supabase:", err);
+// --- USER ACCOUNTS ---
+export async function fetchUserAccountsDb(): Promise<UserAccount[] | null> {
+  try {
+    return await apiJson<UserAccount[]>("/api/supabase/users");
+  } catch {
     return null;
   }
 }
 
-/**
- * Save user system account definition to database schemas.
- */
 export async function saveUserAccountInDb(user: UserAccount): Promise<boolean> {
-  if (!supabase) return false;
   try {
-    const { error } = await supabase
-      .from("user_accounts")
-      .upsert({
-        id: user.id,
-        username: user.username,
-        senha: user.senha || null,
-        nome: user.nome,
-        cargo: user.cargo,
-        role: user.role,
-        ativo: user.ativo,
-        data_criacao: user.dataCriacao,
-        permissoes: user.permissoes
-      });
-    if (error) throw error;
+    await apiJson("/api/supabase/users", {
+      method: "POST",
+      body: JSON.stringify(user),
+    });
     return true;
   } catch (err) {
     console.warn("Erro ao salvar conta de usuário no Supabase:", err);
@@ -395,27 +317,216 @@ export async function saveUserAccountInDb(user: UserAccount): Promise<boolean> {
   }
 }
 
-/**
- * Delete specific user ID configurations.
- */
 export async function deleteUserAccountInDb(id: string): Promise<boolean> {
-  if (!supabase) return false;
   try {
-    const { error } = await supabase
-      .from("user_accounts")
-      .delete()
-      .eq("id", id);
-    if (error) throw error;
+    await apiJson(`/api/supabase/users/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
     return true;
   } catch (err) {
-    console.warn("Erro ao excluir usuário do Supabase:", err);
+    console.warn("Erro ao excluir usuário no Supabase:", err);
     return false;
   }
 }
 
-/**
- * Bulk sync all existing client local storage lists directly into the Supabase server tables
- */
+// --- LOGISTICS, DIRECTORIES, GALPÕES, MAPPINGS ---
+export async function saveTrucksInDb(trucks: TruckEntity[]): Promise<boolean> {
+  try {
+    await apiJson("/api/supabase/trucks", {
+      method: "POST",
+      body: JSON.stringify(trucks),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function saveDirectoriesInDb(payload: {
+  sawmills?: string[];
+  yards?: string[];
+}): Promise<boolean> {
+  try {
+    await apiJson("/api/supabase/directories", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function saveGalpoesInDb(galpoes: GalpaoEntity[]): Promise<boolean> {
+  try {
+    await apiJson("/api/supabase/galpoes", {
+      method: "POST",
+      body: JSON.stringify(galpoes),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function saveGalpaoDispatchesInDb(
+  dispatches: GalpaoDispatchLog[]
+): Promise<boolean> {
+  try {
+    await apiJson("/api/supabase/galpao-dispatches", {
+      method: "POST",
+      body: JSON.stringify(dispatches),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function saveNfeMappingsInDb(
+  mappings: Record<string, { especie: string; dono: string }>
+): Promise<boolean> {
+  try {
+    await apiJson("/api/supabase/nfe-mappings", {
+      method: "POST",
+      body: JSON.stringify(mappings),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// --- PER-USER WORKSPACE: EVENTS, NOTES, CHECKLISTS ---
+export async function fetchUserWorkspaceDb(
+  username: string
+): Promise<UserWorkspacePayload | null> {
+  try {
+    return await apiJson<UserWorkspacePayload>(
+      `/api/supabase/workspace/${encodeURIComponent(username)}`
+    );
+  } catch {
+    return null;
+  }
+}
+
+export async function saveUserEventInDb(
+  username: string,
+  event: UserEvent
+): Promise<boolean> {
+  try {
+    await apiJson(
+      `/api/supabase/workspace/${encodeURIComponent(username)}/events`,
+      {
+        method: "POST",
+        body: JSON.stringify(event),
+      }
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function deleteUserEventInDb(
+  username: string,
+  id: string
+): Promise<boolean> {
+  try {
+    await apiJson(
+      `/api/supabase/workspace/${encodeURIComponent(username)}/events/${encodeURIComponent(id)}`,
+      { method: "DELETE" }
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function saveUserNoteInDb(
+  username: string,
+  note: UserNote
+): Promise<boolean> {
+  try {
+    await apiJson(
+      `/api/supabase/workspace/${encodeURIComponent(username)}/notes`,
+      {
+        method: "POST",
+        body: JSON.stringify(note),
+      }
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function deleteUserNoteInDb(
+  username: string,
+  id: string
+): Promise<boolean> {
+  try {
+    await apiJson(
+      `/api/supabase/workspace/${encodeURIComponent(username)}/notes/${encodeURIComponent(id)}`,
+      { method: "DELETE" }
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function saveUserChecklistInDb(
+  username: string,
+  checklist: UserChecklist
+): Promise<boolean> {
+  try {
+    await apiJson(
+      `/api/supabase/workspace/${encodeURIComponent(username)}/checklists`,
+      {
+        method: "POST",
+        body: JSON.stringify(checklist),
+      }
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function deleteUserChecklistInDb(
+  username: string,
+  id: string
+): Promise<boolean> {
+  try {
+    await apiJson(
+      `/api/supabase/workspace/${encodeURIComponent(username)}/checklists/${encodeURIComponent(id)}`,
+      { method: "DELETE" }
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function collectLocalArray<T>(prefix: string): T[] {
+  const collected: T[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith(prefix)) {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(key) || "[]");
+        if (Array.isArray(parsed)) {
+          collected.push(...parsed);
+        }
+      } catch {
+        // Ignore malformed local key
+      }
+    }
+  }
+  return collected;
+}
+
 export async function syncAllLocalStorageToSupabase(
   autexList: Autex[],
   deductions: NfeDeduction[],
@@ -423,91 +534,46 @@ export async function syncAllLocalStorageToSupabase(
   userAccounts: UserAccount[],
   securityLogs: SecurityLog[]
 ): Promise<{ success: boolean; message: string }> {
-  if (!supabase) {
-    return { success: false, message: "Mecanismo Supabase não configurado no seu arquivo .env" };
-  }
-
   try {
-    // 1. Sync autex and its items
-    for (const autex of autexList) {
-      await saveAutexInDb(autex);
-    }
+    const trucksRaw = localStorage.getItem("logistica_trucks_directory");
+    const galpoesRaw = localStorage.getItem("manejo_galpoes_directory");
+    const dispatchesRaw = localStorage.getItem("manejo_galpao_dispatches");
+    const sawmillsRaw = localStorage.getItem("manejo_serrarias_directory");
+    const yardsRaw = localStorage.getItem("manejo_patios_directory");
+    const mappingsRaw = localStorage.getItem("nfe_xml_saved_mappings");
 
-    // 2. Sync deductions
-    if (deductions.length > 0) {
-      await saveDeductionsInDb(deductions);
-    }
+    const userEvents = collectLocalArray<UserEvent>("etw_user_events_");
+    const userNotes = collectLocalArray<UserNote>("etw_user_notes_");
+    const userChecklists = collectLocalArray<UserChecklist>("etw_user_checklists_");
 
-    // 3. Sync sawmill logs
-    if (sawmillLogs.length > 0) {
-      await saveSawmillLogsInDb(sawmillLogs);
-    }
-
-    // 4. Sync users
-    for (const user of userAccounts) {
-      await saveUserAccountInDb(user);
-    }
-
-    // 5. Sync security logs
-    for (const log of securityLogs) {
-      await saveSecurityLogInDb(log);
-    }
-
-    return { 
-      success: true, 
-      message: "Sincronização completa de dados legados para o banco Supabase com sucesso!" 
+    const payload = {
+      autexList,
+      deductions,
+      sawmillLogs,
+      userAccounts,
+      securityLogs,
+      trucks: trucksRaw ? JSON.parse(trucksRaw) : [],
+      galpoes: galpoesRaw ? JSON.parse(galpoesRaw) : [],
+      galpaoDispatches: dispatchesRaw ? JSON.parse(dispatchesRaw) : [],
+      sawmills: sawmillsRaw ? JSON.parse(sawmillsRaw) : [],
+      yards: yardsRaw ? JSON.parse(yardsRaw) : [],
+      nfeMappings: mappingsRaw ? JSON.parse(mappingsRaw) : {},
+      userEvents,
+      userNotes,
+      userChecklists,
     };
-  } catch (err: any) {
-    return { 
-      success: false, 
-      message: `Erro de sincronização: ${err.message || err}` 
-    };
-  }
-}
 
-/**
- * Test connections and measure api latency of Supabase Project.
- */
-export async function checkSupabaseConnection(): Promise<{ success: boolean; message: string; latency?: number }> {
-  if (!supabase) {
-    return { success: false, message: "Supabase não está configurado. Verifique as credenciais no arquivo .env" };
-  }
-  
-  const startTime = performance.now();
-  try {
-    // Ping with a lightweight select on the 'autex' table
-    const { error } = await supabase
-      .from("autex")
-      .select("id")
-      .limit(1);
-      
-    const endTime = performance.now();
-    const duration = Math.round(endTime - startTime);
-
-    if (error) {
-      // If error code indicates table not existing, postgres is alive but migrations are missing
-      if (error.code === "PGRST116" || error.code === "42P01") {
-        return { 
-          success: false, 
-          message: `Conectado ao Supabase, mas tabelas não foram encontradas! Erro: ${error.message} (Código ${error.code}). Por favor, execute as Migrations descritas no arquivo /supabase/README.md para criar os esquemas necessários.`,
-          latency: duration 
-        };
+    return await apiJson<{ success: boolean; message: string }>(
+      "/api/supabase/sync-all",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
       }
-      throw error;
-    }
-
-    return {
-      success: true,
-      message: "Conexão com o banco de dados remota do Supabase estabelecida com sucesso!",
-      latency: duration
-    };
+    );
   } catch (err: any) {
-    const endTime = performance.now();
-    const duration = Math.round(endTime - startTime);
     return {
       success: false,
-      message: `Falha de conexão com o Supabase: ${err?.message || err?.details || err || "Erro desconhecido"}`,
-      latency: duration
+      message: err?.message || "Falha ao sincronizar dados com o Supabase.",
     };
   }
 }

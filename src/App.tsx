@@ -18,24 +18,21 @@ import BackupModule from "./components/BackupModule";
 import UserControlModule from "./components/UserControlModule";
 import LoginOverlay from "./components/LoginOverlay";
 import PwaInstallModal from "./components/PwaInstallModal";
+import UserWorkspaceModule from "./components/UserWorkspaceModule";
 import { SecurityLog } from "./types";
-import { 
-  isSupabaseConfigured,
-  fetchAutexListDb,
-  saveAutexInDb,
+import {
+  checkSupabaseConnection,
+  clearSecurityLogsInDb,
   deleteAutexInDb,
-  fetchDeductionsDb,
-  saveDeductionsInDb,
-  fetchSawmillLogsDb,
-  saveSawmillLogsInDb,
-  fetchSecurityLogsDb,
-  saveSecurityLogInDb,
-  fetchUserAccountsDb,
-  saveUserAccountInDb,
-  syncAllLocalStorageToSupabase,
   deleteDeductionInDb,
   deleteSawmillLogInDb,
-  checkSupabaseConnection
+  fetchBootstrapFromServer,
+  fetchMigrationSql,
+  saveAutexInDb,
+  saveDeductionsInDb,
+  saveSawmillLogsInDb,
+  saveSecurityLogInDb,
+  syncAllLocalStorageToSupabase,
 } from "./lib/supabase";
 import { 
   FileText, 
@@ -86,7 +83,7 @@ export default function App() {
   const [deductions, setDeductions] = useState<NfeDeduction[]>([]);
   
   // Navigation Tabs state
-  const [activeTab, setActiveTab] = useState<"painel" | "lancamento" | "relatorios" | "serraria" | "galpao" | "logistica" | "backup" | "usuarios">("painel");
+  const [activeTab, setActiveTab] = useState<"painel" | "lancamento" | "relatorios" | "serraria" | "galpao" | "logistica" | "agenda" | "backup" | "usuarios">("painel");
   const [sawmillLogs, setSawmillLogs] = useState<SawmillProcessLog[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => localStorage.getItem("etw_sidebar_collapsed") === "true");
@@ -145,9 +142,14 @@ export default function App() {
       detalhes,
       status
     };
-    const updated = [newLog, ...securityLogs].slice(0, 100);
-    setSecurityLogs(updated);
-    localStorage.setItem("etw_security_logs", JSON.stringify(updated));
+    setSecurityLogs((prev) => {
+      const updated = [newLog, ...prev].slice(0, 100);
+      localStorage.setItem("etw_security_logs", JSON.stringify(updated));
+      return updated;
+    });
+    if (isSupabaseConnected) {
+      void saveSecurityLogInDb(newLog);
+    }
   };
 
   const handleLoginSuccess = (username: string) => {
@@ -155,6 +157,7 @@ export default function App() {
     localStorage.setItem("etw_current_user", username);
     sessionStorage.setItem("etw_is_authenticated", "true");
     setIsAuthenticated(true);
+    void loadAllDataFromDb();
   };
 
   const handleLogout = () => {
@@ -166,6 +169,9 @@ export default function App() {
   const handleClearSecurityLogs = () => {
     setSecurityLogs([]);
     localStorage.removeItem("etw_security_logs");
+    if (isSupabaseConnected) {
+      void clearSecurityLogsInDb();
+    }
   };
 
   const handleSwitchUser = (username: string) => {
@@ -277,19 +283,42 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- Supabase Synchronization States ---
+  const [isSupabaseConfigured, setIsSupabaseConfigured] = useState(false);
+  const [isSupabaseConnected, setIsSupabaseConnected] = useState(false);
+  const [missingTables, setMissingTables] = useState<string[]>([]);
+  const [isCopyingSql, setIsCopyingSql] = useState(false);
+  const [copiedSqlDone, setCopiedSqlDone] = useState(false);
   const [isDbLoading, setIsDbLoading] = useState(false);
   const [supabaseSyncError, setSupabaseSyncError] = useState<string | null>(null);
   const [isSyncingUp, setIsSyncingUp] = useState(false);
   const [isTestingDbConnection, setIsTestingDbConnection] = useState(false);
   const [dbTestResult, setDbTestResult] = useState<{ success: boolean; message: string; latency?: number } | null>(null);
 
+  const handleCopyMigrationSql = async () => {
+    setIsCopyingSql(true);
+    try {
+      const sqlText = await fetchMigrationSql();
+      await navigator.clipboard.writeText(sqlText);
+      setCopiedSqlDone(true);
+      setTimeout(() => setCopiedSqlDone(false), 3500);
+    } catch (err: any) {
+      setSupabaseSyncError(`Não foi possível copiar o SQL: ${err?.message || err}`);
+    } finally {
+      setIsCopyingSql(false);
+    }
+  };
+
   const handleTestDbConnection = async () => {
     setIsTestingDbConnection(true);
     setDbTestResult(null);
     try {
       const res = await checkSupabaseConnection();
-      setDbTestResult(res);
+      setIsSupabaseConfigured(res.configured);
+      setIsSupabaseConnected(res.success);
+      setMissingTables(res.missingTables || []);
+      setDbTestResult({ success: res.success, message: res.message, latency: res.latency });
       if (res.success) {
+        setSupabaseSyncError(null);
         handleAddSecurityLog(
           "TESTE_CONEXAO_OK",
           `Teste de conexão Supabase bem-sucedido. Latência: ${res.latency}ms.`,
@@ -298,7 +327,7 @@ export default function App() {
       } else {
         handleAddSecurityLog(
           "TESTE_CONEXAO_ERRO",
-          `Teste de conexão Supabase falhou: ${res.message}`,
+          `Teste de conexão Supabase: ${res.message}`,
           "erro"
         );
       }
@@ -337,7 +366,7 @@ export default function App() {
         } else if (parsed.length > 0) {
           initialActiveId = parsed[0].id;
         }
-      } catch (e) {
+      } catch {
         initialAutex = DEFAULT_AUTEX_LIST;
         initialActiveId = DEFAULT_AUTEX_LIST[0]?.id || "";
       }
@@ -346,13 +375,13 @@ export default function App() {
     if (savedDeductions) {
       try {
         initialDeductions = JSON.parse(savedDeductions);
-      } catch (e) {}
+      } catch {}
     }
 
     if (savedSawmillLogs) {
       try {
         initialSawmill = JSON.parse(savedSawmillLogs);
-      } catch (e) {}
+      } catch {}
     }
 
     setAutexList(initialAutex);
@@ -360,54 +389,98 @@ export default function App() {
     setDeductions(initialDeductions);
     setSawmillLogs(initialSawmill);
 
-    // 2. Fetch fresh live data from Supabase if configured
-    if (isSupabaseConfigured) {
-      try {
-        const dbAutexList = await fetchAutexListDb();
-        const dbDeductionsList = await fetchDeductionsDb();
-        const dbSawmillLogs = await fetchSawmillLogsDb();
-        const dbSecurityLogs = await fetchSecurityLogsDb();
+    // 2. Check server-side Supabase Secrets status & bootstrap live cloud data
+    try {
+      const status = await checkSupabaseConnection();
+      setIsSupabaseConfigured(status.configured);
+      setIsSupabaseConnected(status.success);
+      setMissingTables(status.missingTables || []);
 
-        if (dbAutexList !== null) {
-          setAutexList(dbAutexList);
-          if (dbAutexList.length > 0) {
-            if (!initialActiveId || !dbAutexList.some(a => a.id === initialActiveId)) {
-              setActiveAutexId(dbAutexList[0].id);
-            } else {
-              setActiveAutexId(initialActiveId);
-            }
+      if (!status.configured) {
+        setIsDbLoading(false);
+        return;
+      }
+
+      if (!status.success) {
+        setSupabaseSyncError(status.message);
+        setIsDbLoading(false);
+        return;
+      }
+
+      const payload = await fetchBootstrapFromServer();
+      if (payload) {
+        if (payload.autexList !== null && payload.autexList.length > 0) {
+          setAutexList(payload.autexList);
+          localStorage.setItem("manejo_autex_list", JSON.stringify(payload.autexList));
+          if (!initialActiveId || !payload.autexList.some((a) => a.id === initialActiveId)) {
+            setActiveAutexId(payload.autexList[0].id);
           } else {
-            setActiveAutexId("");
+            setActiveAutexId(initialActiveId);
           }
         }
 
-        if (dbDeductionsList !== null) {
-          setDeductions(dbDeductionsList);
+        if (payload.deductions !== null && (payload.deductions.length > 0 || initialDeductions.length === 0)) {
+          setDeductions(payload.deductions);
+          localStorage.setItem("manejo_deductions_list", JSON.stringify(payload.deductions));
         }
 
-        if (dbSawmillLogs !== null) {
-          setSawmillLogs(dbSawmillLogs);
+        if (payload.sawmillLogs !== null && (payload.sawmillLogs.length > 0 || initialSawmill.length === 0)) {
+          setSawmillLogs(payload.sawmillLogs);
+          localStorage.setItem("sawmill_logs_list", JSON.stringify(payload.sawmillLogs));
         }
 
-        if (dbSecurityLogs !== null) {
-          setSecurityLogs(dbSecurityLogs);
+        if (payload.securityLogs !== null && payload.securityLogs.length > 0) {
+          setSecurityLogs(payload.securityLogs);
+          localStorage.setItem("etw_security_logs", JSON.stringify(payload.securityLogs));
+        }
+
+        if (payload.userAccounts !== null && payload.userAccounts.length > 0) {
+          localStorage.setItem("etw_user_accounts", JSON.stringify(payload.userAccounts));
+        }
+
+        if (payload.trucks !== null && payload.trucks.length > 0) {
+          localStorage.setItem("logistica_trucks_directory", JSON.stringify(payload.trucks));
+        }
+
+        if (payload.galpoes !== null && payload.galpoes.length > 0) {
+          localStorage.setItem("manejo_galpoes_directory", JSON.stringify(payload.galpoes));
+          window.dispatchEvent(new Event("galpoes_updated"));
+        }
+
+        if (payload.galpaoDispatches !== null && payload.galpaoDispatches.length > 0) {
+          localStorage.setItem("manejo_galpao_dispatches", JSON.stringify(payload.galpaoDispatches));
+          window.dispatchEvent(new Event("galpao_dispatches_updated"));
+        }
+
+        if (payload.sawmills !== null && payload.sawmills.length > 0) {
+          localStorage.setItem("manejo_serrarias_directory", JSON.stringify(payload.sawmills));
+          window.dispatchEvent(new Event("patios_serrarias_updated"));
+        }
+
+        if (payload.yards !== null && payload.yards.length > 0) {
+          localStorage.setItem("manejo_patios_directory", JSON.stringify(payload.yards));
+          window.dispatchEvent(new Event("patios_serrarias_updated"));
+        }
+
+        if (payload.nfeMappings !== null && Object.keys(payload.nfeMappings).length > 0) {
+          localStorage.setItem("nfe_xml_saved_mappings", JSON.stringify(payload.nfeMappings));
         }
 
         handleAddSecurityLog(
-          "SINC_NUVEM_OK", 
-          "Conectado ao Supabase: Dados operacionais e de saldos sincronizados em lote com a nuvem.", 
+          "SINC_NUVEM_OK",
+          "Conectado ao Supabase via Secrets: dados operacionais, usuários, eventos, notas e checklists sincronizados.",
           "sucesso"
         );
-      } catch (err: any) {
-        console.warn("Erro ao sincronizar dados com Supabase:", err);
-        setSupabaseSyncError("Banco de dados indisponível ou migrações incompletas. Usando armazenamento offline local.");
       }
+    } catch (err: any) {
+      console.warn("Erro ao sincronizar dados com Supabase:", err);
+      setSupabaseSyncError("Banco de dados indisponível ou migrações pendentes. Usando armazenamento offline local.");
     }
     setIsDbLoading(false);
   };
 
   useEffect(() => {
-    loadAllDataFromDb();
+    void loadAllDataFromDb();
   }, []);
 
   // Sync / Push all local state values to SQL on-demand (Manual/Bulk uploads)
@@ -418,7 +491,7 @@ export default function App() {
     try {
       const savedUsersStr = localStorage.getItem("etw_user_accounts");
       const savedUsers = savedUsersStr ? JSON.parse(savedUsersStr) : [];
-      
+
       const res = await syncAllLocalStorageToSupabase(
         autexList,
         deductions,
@@ -429,17 +502,17 @@ export default function App() {
 
       if (res.success) {
         handleAddSecurityLog(
-          "SINC_FORCADA_OK", 
-          "Sincronização manual enviada com sucesso ao servidor Supabase.", 
+          "SINC_FORCADA_OK",
+          "Sincronização manual completa enviada com sucesso ao Supabase.",
           "sucesso"
         );
-        alert(res.message);
+        setDbTestResult({ success: true, message: res.message });
       } else {
         throw new Error(res.message);
       }
     } catch (err: any) {
       setSupabaseSyncError(`Sincronização falhou: ${err.message || err}`);
-      alert(`Erro na sincronização manual: ${err.message || err}`);
+      setDbTestResult({ success: false, message: `Erro na sincronização manual: ${err.message || err}` });
     } finally {
       setIsSyncingUp(false);
     }
@@ -576,14 +649,12 @@ export default function App() {
     setAutexList(list);
     localStorage.setItem("manejo_autex_list", JSON.stringify(list));
 
-    if (isSupabaseConfigured) {
+    if (isSupabaseConnected) {
       try {
-        // Find deleted ones
         const deleted = previous.filter(p => !list.some(l => l.id === p.id));
         for (const d of deleted) {
           await deleteAutexInDb(d.id);
         }
-        // Save current list
         for (const a of list) {
           await saveAutexInDb(a);
         }
@@ -599,7 +670,7 @@ export default function App() {
     setDeductions(list);
     localStorage.setItem("manejo_deductions_list", JSON.stringify(list));
 
-    if (isSupabaseConfigured) {
+    if (isSupabaseConnected) {
       try {
         const deleted = previous.filter(p => !list.some(l => l.id === p.id));
         for (const d of deleted) {
@@ -620,7 +691,7 @@ export default function App() {
     setSawmillLogs(list);
     localStorage.setItem("sawmill_logs_list", JSON.stringify(list));
 
-    if (isSupabaseConfigured) {
+    if (isSupabaseConnected) {
       try {
         const deleted = previous.filter(p => !list.some(l => l.id === p.id));
         for (const d of deleted) {
@@ -1718,6 +1789,25 @@ export default function App() {
           <button
             type="button"
             onClick={() => {
+              setActiveTab("agenda");
+              setIsSidebarOpen(false);
+            }}
+            title="Agenda, Notas e Checklists do Operador"
+            className={`w-full flex items-center transition-all duration-150 rounded-xl cursor-pointer ${
+              isSidebarCollapsed ? "md:justify-center md:px-2 md:py-3.5 px-4 py-3 gap-3" : "gap-3 px-4 py-3"
+            } ${
+              activeTab === "agenda"
+                ? "bg-emerald-800 text-white shadow-sm"
+                : "text-emerald-300 hover:text-white hover:bg-emerald-900/40"
+            }`}
+          >
+            <Calendar className="w-4 h-4 shrink-0" />
+            {!isSidebarCollapsed && <span>📅 Agenda & Checklists</span>}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
               setActiveTab("backup");
               setIsSidebarOpen(false);
             }}
@@ -1853,23 +1943,23 @@ export default function App() {
                   <div className="text-slate-700 font-medium leading-relaxed">
                     {!isSupabaseConfigured ? (
                       <span>
-                        <strong>Banco Local (Offline-First)</strong>. O sistema está rodando localmente de forma segura. Configure as variáveis 
-                        <code className="mx-1 px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-mono text-slate-600 font-bold">VITE_SUPABASE_URL</code> 
-                        e <code className="mx-1 px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-mono text-slate-600 font-bold">VITE_SUPABASE_ANON_KEY</code> 
-                        no seu arquivo <code className="px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-mono text-slate-600 font-bold">.env</code> para ativar a sincronização em nuvem.
+                        <strong>Banco Local (Offline-First)</strong>. Para conectar ao Supabase via <strong>Secrets</strong> do AI Studio, adicione as variáveis{" "}
+                        <code className="mx-1 px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-mono text-slate-600 font-bold">SUPABASE_URL</code> e{" "}
+                        <code className="mx-1 px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-mono text-slate-600 font-bold">SUPABASE_ANON_KEY</code>{" "}
+                        (ou <code className="mx-1 px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-mono text-slate-600 font-bold">SUPABASE_SERVICE_ROLE_KEY</code>) no painel Secrets e recarregue.
                       </span>
                     ) : supabaseSyncError ? (
                       <span className="text-amber-800">
-                        <strong>Supabase Suspenso</strong>: {supabaseSyncError} Rodando localmente offline-first.
+                        <strong>Supabase Aguardando Tabelas / Atenção</strong>: {supabaseSyncError}
                       </span>
                     ) : isDbLoading ? (
-                      <span className="text-slate-600 font-bold">Sincronizando tabelas com o banco de dados remoto Supabase...</span>
+                      <span className="text-slate-600 font-bold">Sincronizando contas, eventos, notas, checklists e saldos com o Supabase...</span>
                     ) : (
                       <span className="text-slate-800 font-semibold flex items-center gap-1.5">
                         <svg className="w-4 h-4 text-emerald-600 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                           <polyline points="20 6 9 17 4 12" />
                         </svg>
-                        Supabase Conectado: Seus saldos de AUTEX, faturamentos e logs da serraria estão totalmente seguros na nuvem em tempo real.
+                        Supabase Conectado via Secrets: Contas de usuários, eventos, notas, checklists, AUTEX, notas fiscais e logística protegidos na nuvem.
                       </span>
                     )}
                   </div>
@@ -1881,7 +1971,7 @@ export default function App() {
                         : "bg-amber-50 border border-amber-100 text-amber-900"
                     } flex items-center gap-1.5 font-sans font-medium mt-1 w-full max-w-2xl`}>
                       <span className="font-extrabold uppercase shrink-0 text-[9px] px-1 bg-white/40 rounded">
-                        {dbTestResult.success ? "Conexão Ativa" : "Erro de Conexão"}
+                        {dbTestResult.success ? "Conexão Ativa" : "Atenção"}
                       </span>
                       <span>
                         {dbTestResult.message} 
@@ -1895,6 +1985,19 @@ export default function App() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2 shrink-0 w-full md:w-auto justify-end">
+                {(missingTables.length > 0 || !isSupabaseConnected) && (
+                  <button
+                    type="button"
+                    onClick={handleCopyMigrationSql}
+                    disabled={isCopyingSql}
+                    className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded text-[10px] font-bold text-amber-900 uppercase transition cursor-pointer flex items-center gap-1.5"
+                    title="Copiar script SQL completo para colar no SQL Editor do Supabase"
+                  >
+                    <Database className="w-3.5 h-3.5 text-amber-700" />
+                    <span>{copiedSqlDone ? "SQL Copiado!" : isCopyingSql ? "Copiando..." : "Copiar SQL das Tabelas"}</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={handleTestDbConnection}
@@ -2931,6 +3034,15 @@ export default function App() {
             <LogisticaModule 
               deductions={deductions}
               onSaveDeductions={saveDeductions}
+            />
+          )}
+
+          {/* DYNAMIC COMPONENT: TAB AGENDA / NOTAS / CHECKLISTS DO USUÁRIO */}
+          {activeTab === "agenda" && (
+            <UserWorkspaceModule
+              currentUser={currentUser}
+              isSupabaseConnected={isSupabaseConnected}
+              onAddSecurityLog={handleAddSecurityLog}
             />
           )}
 

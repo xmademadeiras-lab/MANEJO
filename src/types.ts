@@ -92,3 +92,52 @@ export interface SecurityLog {
   status: "sucesso" | "erro" | "alerta";
 }
 
+export interface TruckEntity {
+  id: string;
+  placa: string;
+  modelo: string;
+  motorista: string;
+  capacidadeMaxM3: number;
+}
+
+export interface UserEvent {
+  id: string;
+  username: string;
+  titulo: string;
+  descricao: string;
+  dataEvento: string; // YYYY-MM-DD
+  horaEvento?: string; // HH:mm
+  categoria: "Operacional" | "Fiscal/IBAMA" | "Logística" | "Serraria" | "Reunião" | "Outro";
+  prioridade: "alta" | "media" | "baixa";
+  concluido: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UserNote {
+  id: string;
+  username: string;
+  titulo: string;
+  conteudo: string;
+  cor: "emerald" | "amber" | "sky" | "rose" | "slate";
+  fixada: boolean;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UserChecklistItem {
+  id: string;
+  texto: string;
+  concluido: boolean;
+}
+
+export interface UserChecklist {
+  id: string;
+  username: string;
+  titulo: string;
+  categoria: string;
+  items: UserChecklistItem[];
+  createdAt: string;
+  updatedAt: string;
+}

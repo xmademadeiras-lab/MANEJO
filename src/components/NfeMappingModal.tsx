@@ -18,6 +18,7 @@ import {
 } from "../lib/galpaoData";
 import ManagePatiosModal from "./ManagePatiosModal";
 import ManageGalpoesModal from "./ManageGalpoesModal";
+import { saveNfeMappingsInDb } from "../lib/supabase";
 
 interface NfeMappingModalProps {
   isOpen: boolean;
@@ -200,6 +201,7 @@ export default function NfeMappingModal({
         dono: currentOwner
       };
       localStorage.setItem("nfe_xml_saved_mappings", JSON.stringify(savedMappings));
+      void saveNfeMappingsInDb(savedMappings);
     }
   };
 
@@ -224,6 +226,7 @@ export default function NfeMappingModal({
         dono
       };
       localStorage.setItem("nfe_xml_saved_mappings", JSON.stringify(savedMappings));
+      void saveNfeMappingsInDb(savedMappings);
     }
   };
 
